@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'Chino/frontend/Auditoria.dart';
+import 'Chino/frontend/Reportes.dart';
+import 'Chino/frontend/Stock.dart';
+
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({
     super.key,
@@ -21,10 +25,43 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   int selectedIndex = 0;
 
+  // Índices del menú del Lobby que ya están implementados por Chino y
+  // deben navegar de verdad (los demás, por ahora, solo resaltan el ítem).
+  static const int _indiceInventario = 3;
+  static const int _indiceReportes = 6;
+  static const int _indiceAuditoria = 7;
+
   void selectSection(int index) {
+    switch (index) {
+      case _indiceInventario:
+        _abrirModuloChino(const StockScreen());
+        return;
+      case _indiceReportes:
+        _abrirModuloChino(const ReportesScreen());
+        return;
+      case _indiceAuditoria:
+        _abrirModuloChino(const AuditoriaScreen());
+        return;
+    }
+
     setState(() {
       selectedIndex = index;
     });
+  }
+
+  /// Navega a uno de los módulos de Chino (Stock/Reportes/Auditoria). Al
+  /// volver (botón "Volver al Lobby" o back del sistema) regresa aquí
+  /// mismo y deja "Inicio" resaltado de nuevo en el menú.
+  Future<void> _abrirModuloChino(Widget pantalla) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => pantalla),
+    );
+    if (mounted) {
+      setState(() {
+        selectedIndex = 0;
+      });
+    }
   }
 
   @override
@@ -308,6 +345,13 @@ class _SideBar extends StatelessWidget {
               compact: compact,
               active: selectedIndex == 6,
               onTap: () => onSelected(6),
+            ),
+            _SideItem(
+              icon: Icons.fact_check_outlined,
+              label: 'Auditoría',
+              compact: compact,
+              active: selectedIndex == 7,
+              onTap: () => onSelected(7),
             ),
             const Spacer(),
             Padding(
@@ -927,8 +971,11 @@ class _MobileDrawer extends StatelessWidget {
     BuildContext context,
     int index,
   ) {
-    onSelected(index);
+    // Primero cierra el drawer y luego navega: si `onSelected` abre un
+    // módulo de Chino (push), hacerlo antes de cerrar el drawer cerraría
+    // esa pantalla nueva en vez del drawer.
     Navigator.pop(context);
+    onSelected(index);
   }
 
   @override
@@ -1126,6 +1173,14 @@ class _MobileDrawer extends StatelessWidget {
                       active: selectedIndex == 6,
                       onTap: () {
                         select(context, 6);
+                      },
+                    ),
+                    _DrawerItem(
+                      icon: Icons.fact_check_outlined,
+                      title: 'Auditoría',
+                      active: selectedIndex == 7,
+                      onTap: () {
+                        select(context, 7);
                       },
                     ),
                   ],
