@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'Chino/frontend/Auditoria.dart';
+import 'Chino/frontend/MateriaPrima.dart';
+import 'Henry/frontend/Sucursales.dart';
 import 'Chino/frontend/Reportes.dart';
 import 'Chino/frontend/Stock.dart';
 
@@ -30,9 +32,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
   static const int _indiceInventario = 3;
   static const int _indiceReportes = 6;
   static const int _indiceAuditoria = 7;
+  static const int _indiceIngredientes = 8;
+  static const int _indiceSucursales = 5;
 
   void selectSection(int index) {
     switch (index) {
+      // TODO(compañeros): enlazar aquí Ventas (índice 1) y Productos
+      // (índice 2), igual que los casos de abajo. Ejemplo:
+      //   case 1:
+      //     _abrirModuloChino(const VentasScreen());
+      //     return;
       case _indiceInventario:
         _abrirModuloChino(const StockScreen());
         return;
@@ -42,6 +51,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
       case _indiceAuditoria:
         _abrirModuloChino(const AuditoriaScreen());
         return;
+      case _indiceIngredientes:
+        _abrirModuloChino(const MateriaPrimaScreen());
+        return;
+      case _indiceSucursales:
+        _abrirModuloChino(const SucursalesScreen());
+        return;
     }
 
     setState(() {
@@ -49,7 +64,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     });
   }
 
-  /// Navega a uno de los módulos de Chino (Stock/Reportes/Auditoria). Al
+  /// Navega a uno de los módulos de Chino (Stock/Ingredientes/Sucursales/Reportes/Auditoria). Al
   /// volver (botón "Volver al Lobby" o back del sistema) regresa aquí
   /// mismo y deja "Inicio" resaltado de nuevo en el menú.
   Future<void> _abrirModuloChino(Widget pantalla) async {
@@ -297,6 +312,10 @@ class _SideBar extends StatelessWidget {
               color: Color(0xFFAA454A),
             ),
             const SizedBox(height: 14),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
             _SideItem(
               icon: Icons.home_outlined,
               label: 'Inicio',
@@ -326,6 +345,13 @@ class _SideBar extends StatelessWidget {
               onTap: () => onSelected(3),
             ),
             _SideItem(
+              icon: Icons.kitchen_outlined,
+              label: 'Ingredientes',
+              compact: compact,
+              active: selectedIndex == 8,
+              onTap: () => onSelected(8),
+            ),
+            _SideItem(
               icon: Icons.people_outline,
               label: 'Usuarios',
               compact: compact,
@@ -353,7 +379,10 @@ class _SideBar extends StatelessWidget {
               active: selectedIndex == 7,
               onTap: () => onSelected(7),
             ),
-            const Spacer(),
+                  ],
+                ),
+              ),
+            ),
             Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: compact ? 10 : 16,
@@ -1149,6 +1178,14 @@ class _MobileDrawer extends StatelessWidget {
                       active: selectedIndex == 3,
                       onTap: () {
                         select(context, 3);
+                      },
+                    ),
+                    _DrawerItem(
+                      icon: Icons.kitchen_outlined,
+                      title: 'Ingredientes',
+                      active: selectedIndex == 8,
+                      onTap: () {
+                        select(context, 8);
                       },
                     ),
                     _DrawerItem(

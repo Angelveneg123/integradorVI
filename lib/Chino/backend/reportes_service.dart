@@ -1,9 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
+import '../../Henry/backend/sucursal_modelo.dart';
 import 'venta_modelo.dart';
 import 'auditoria_service.dart';
 import 'productos_service.dart';
+
+/// Valor del selector de sucursal que significa "sin filtrar".
+const String kTodasLasSucursales = 'Todas las sucursales';
 
 /// Tabla genérica de resultados para mostrar en `ResultadoReporteScreen`.
 class TablaReporte {
@@ -52,11 +56,12 @@ class ReportesService {
     }
   }
 
-  /// Convierte "Sucursal Centro" / "Sucursal Norte" / "Todas las sucursales"
-  /// del formulario al valor que se guarda en los documentos.
+  /// El formulario ahora entrega el **nombre** de la sucursal tal como está
+  /// en la colección `sucursales` (o [kTodasLasSucursales]). Ese es el mismo
+  /// valor que guardan Productos y Materia Prima; `null` = sin filtro.
   String? sucursalParaFiltro(String opcionSucursal) {
-    if (opcionSucursal == 'Todas las sucursales') return null;
-    return opcionSucursal.replaceFirst('Sucursal ', '');
+    if (opcionSucursal == kTodasLasSucursales) return null;
+    return opcionSucursal.trim();
   }
 
   Future<TablaReporte> generar({
@@ -84,7 +89,8 @@ class ReportesService {
         .where('fecha', isGreaterThanOrEqualTo: Timestamp.fromDate(desde))
         .where('fecha', isLessThanOrEqualTo: Timestamp.fromDate(hasta));
     if (sucursal != null) {
-      query = query.where('sucursal', isEqualTo: sucursal);
+      // Las ventas pueden tener "Norte" o "Sucursal Norte".
+      query = query.where('sucursal', whereIn: variantesNombreSucursal(sucursal));
     }
 
     final snap = await query.orderBy('fecha', descending: true).get();

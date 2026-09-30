@@ -10,6 +10,8 @@ import 'package:share_plus/share_plus.dart';
 
 import 'AppDrawer.dart';
 import '../backend/reportes_service.dart';
+import '../../Henry/backend/sucursal_modelo.dart';
+import '../../Henry/backend/sucursales_service.dart';
 
 // Colores reutilizados del diseño de la app
 const Color _textoOscuro = Color(0xFF5A3E36);
@@ -33,11 +35,9 @@ const List<String> _opcionesFecha = [
   'Este año',
 ];
 
-const List<String> _opcionesSucursal = [
-  'Todas las sucursales',
-  'Sucursal Centro',
-  'Sucursal Norte',
-];
+/// Texto de una sucursal para mostrar en los encabezados del reporte.
+String _textoSucursal(String valor) =>
+    valor == kTodasLasSucursales ? valor : etiquetaSucursal(valor);
 
 /// Pantalla principal: "Reportes".
 class ReportesScreen extends StatefulWidget {
@@ -56,13 +56,18 @@ class _ReportesScreenState extends State<ReportesScreen> {
 
   String _tipoReporte = _tiposReporte.first;
   String _fecha = _opcionesFecha.first;
-  String _sucursal = _opcionesSucursal.first;
+  String _sucursal = kTodasLasSucursales;
+
+  // Las sucursales se leen en vivo de la colección `sucursales` de Firestore
+  // (las mismas que se registran en el módulo Sucursales).
+  late final Stream<List<Sucursal>> _sucursalesStream =
+      SucursalesService().streamSucursales();
 
   void _limpiarCampos() {
     setState(() {
       _tipoReporte = _tiposReporte.first;
       _fecha = _opcionesFecha.first;
-      _sucursal = _opcionesSucursal.first;
+      _sucursal = kTodasLasSucursales;
     });
   }
 
@@ -227,27 +232,64 @@ class _ReportesScreenState extends State<ReportesScreen> {
 
                           const SizedBox(height: 6),
 
-                          DropdownButtonFormField<String>(
-                            initialValue: _sucursal,
-                            items: _opcionesSucursal
-                                .map(
-                                  (opcion) =>
-                                      DropdownMenuItem(
-                                    value: opcion,
-                                    child: Text(opcion),
+                          StreamBuilder<List<Sucursal>>(
+                            stream: _sucursalesStream,
+                            builder: (context, snapshot) {
+                              if (snapshot.hasError) {
+                                return Text(
+                                  'Error al leer sucursales: ${snapshot.error}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFFB3261E),
                                   ),
-                                )
-                                .toList(),
-                            onChanged: (valor) {
-                              setState(() {
-                                _sucursal =
-                                    valor ??
-                                        _opcionesSucursal
-                                            .first;
-                              });
+                                );
+                              }
+                              if (!snapshot.hasData) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 18),
+                                  child: LinearProgressIndicator(
+                                    color: _colorAcento,
+                                  ),
+                                );
+                              }
+
+                              final sucursales = snapshot.data!;
+                              final nombres =
+                                  sucursales.map((s) => s.nombre).toList();
+                              final valor = (_sucursal == kTodasLasSucursales ||
+                                      nombres.contains(_sucursal))
+                                  ? _sucursal
+                                  : kTodasLasSucursales;
+
+                              return DropdownButtonFormField<String>(
+                                key: ValueKey('sucursal_$valor'),
+                                initialValue: valor,
+                                isExpanded: true,
+                                items: [
+                                  const DropdownMenuItem(
+                                    value: kTodasLasSucursales,
+                                    child: Text(kTodasLasSucursales),
+                                  ),
+                                  ...sucursales.map(
+                                    (s) => DropdownMenuItem(
+                                      value: s.nombre,
+                                      child: Text(
+                                        s.activo
+                                            ? s.etiqueta
+                                            : '${s.etiqueta} (inactiva)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                onChanged: (v) {
+                                  setState(() {
+                                    _sucursal = v ?? kTodasLasSucursales;
+                                  });
+                                },
+                                decoration: _decoracionCampo(),
+                              );
                             },
-                            decoration:
-                                _decoracionCampo(),
                           ),
                         ],
                       ),
@@ -484,7 +526,7 @@ class _ResultadoReporteScreenState
               pw.SizedBox(height: 2),
 
               pw.Text(
-                '${widget.fecha} · ${widget.sucursal}',
+                '${widget.fecha} · ${_textoSucursal(widget.sucursal)}',
                 style: pw.TextStyle(
                   fontSize: 11,
                   color: PdfColors.grey700,
@@ -712,7 +754,7 @@ class _ResultadoReporteScreenState
               'Reporte ${widget.tipoReporte}',
           text:
               'Reporte: ${widget.tipoReporte} '
-              '(${widget.fecha} · ${widget.sucursal})',
+              '(${widget.fecha} · ${_textoSucursal(widget.sucursal)})',
           downloadFallbackEnabled:
               true,
         ),
@@ -794,7 +836,7 @@ class _ResultadoReporteScreenState
               const SizedBox(height: 4),
 
               Text(
-                '${widget.fecha} · ${widget.sucursal}',
+                '${widget.fecha} · ${_textoSucursal(widget.sucursal)}',
                 style:
                     const TextStyle(
                   fontSize: 13,
