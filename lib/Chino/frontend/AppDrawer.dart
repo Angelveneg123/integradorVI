@@ -1,10 +1,10 @@
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import 'Stock.dart';
 import 'Auditoria.dart';
 import 'Reportes.dart';
-import '../backend/seed_data.dart';
+import 'MateriaPrima.dart';
+import '../../Henry/frontend/Sucursales.dart';
 
 // Mismos colores que usa la barra lateral del Lobby (ver lobby.dart), para
 // que la navegación se vea igual en todos los módulos de Chino.
@@ -13,7 +13,15 @@ const Color _burgundyDark = Color(0xFF681015);
 const Color _textDark = Color(0xFF2E2927);
 
 /// Identifica qué módulo está activo, para resaltarlo en el menú.
-enum ModuloApp { stock, auditoria, reportes }
+enum ModuloApp {
+  ventas,
+  productos,
+  stock,
+  materiaPrima,
+  sucursales,
+  auditoria,
+  reportes,
+}
 
 /// Barra lateral compartida por los módulos de Chino. Tiene el mismo look
 /// (colores, tipografía, ítems) que la barra lateral móvil del Lobby.
@@ -35,7 +43,17 @@ class AppDrawer extends StatelessWidget {
     if (modulo == moduloActual) return; // ya estás en ese módulo
 
     final Widget pantalla = switch (modulo) {
+      // TODO(compañeros): Ventas y Productos todavía no tienen pantalla.
+      // Cuando existan, reemplaza esta línea por dos:
+      //   ModuloApp.ventas => const VentasScreen(),
+      //   ModuloApp.productos => const ProductosScreen(),
+      // (y agrega el import de cada pantalla arriba).
+      ModuloApp.ventas ||
+      ModuloApp.productos =>
+        throw UnimplementedError('Módulo pendiente de enlazar'),
       ModuloApp.stock => const StockScreen(),
+      ModuloApp.materiaPrima => const MateriaPrimaScreen(),
+      ModuloApp.sucursales => const SucursalesScreen(),
       ModuloApp.auditoria => const AuditoriaScreen(),
       ModuloApp.reportes => const ReportesScreen(),
     };
@@ -55,24 +73,6 @@ class AppDrawer extends StatelessWidget {
   void _volverAlLobby(BuildContext context) {
     Navigator.pop(context); // cierra la barra lateral
     Navigator.of(context).pop(); // regresa al Lobby
-  }
-
-  Future<void> _cargarDatosDePrueba(BuildContext context) async {
-    Navigator.pop(context); // cierra la barra lateral
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Cargando datos de prueba en Firestore...')),
-    );
-    try {
-      await sembrarDatosDePrueba();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Listo: productos, ventas y auditoría de prueba cargados.')),
-      );
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Error al cargar datos de prueba: $e')),
-      );
-    }
   }
 
   @override
@@ -175,7 +175,7 @@ class AppDrawer extends StatelessWidget {
                     ),
                     SizedBox(width: 8),
                     Text(
-                      'Inventario • Reportes • Auditoría',
+                      'Ventas • Productos • Inventario • Reportes',
                       style: TextStyle(
                         color: Colors.white70,
                         fontSize: 10,
@@ -213,10 +213,40 @@ class AppDrawer extends StatelessWidget {
                       onTap: () => _volverAlLobby(context),
                     ),
                     _DrawerItem(
+                      icon: Icons.point_of_sale_outlined,
+                      title: 'Ventas',
+                      active: moduloActual == ModuloApp.ventas,
+                      // TODO(compañeros): enlazar Ventas. Cuando exista la
+                      // pantalla, cambia esto por:
+                      //   onTap: () => _irA(context, ModuloApp.ventas),
+                      onTap: () {},
+                    ),
+                    _DrawerItem(
+                      icon: Icons.inventory_2_outlined,
+                      title: 'Productos',
+                      active: moduloActual == ModuloApp.productos,
+                      // TODO(compañeros): enlazar Productos. Cuando exista la
+                      // pantalla, cambia esto por:
+                      //   onTap: () => _irA(context, ModuloApp.productos),
+                      onTap: () {},
+                    ),
+                    _DrawerItem(
                       icon: Icons.warehouse_outlined,
                       title: 'Inventario',
                       active: moduloActual == ModuloApp.stock,
                       onTap: () => _irA(context, ModuloApp.stock),
+                    ),
+                    _DrawerItem(
+                      icon: Icons.kitchen_outlined,
+                      title: 'Ingredientes',
+                      active: moduloActual == ModuloApp.materiaPrima,
+                      onTap: () => _irA(context, ModuloApp.materiaPrima),
+                    ),
+                    _DrawerItem(
+                      icon: Icons.storefront_outlined,
+                      title: 'Sucursales',
+                      active: moduloActual == ModuloApp.sucursales,
+                      onTap: () => _irA(context, ModuloApp.sucursales),
                     ),
                     _DrawerItem(
                       icon: Icons.bar_chart_outlined,
@@ -252,20 +282,6 @@ class AppDrawer extends StatelessWidget {
               active: false,
               onTap: () {},
             ),
-            if (kDebugMode) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Divider(
-                  color: Colors.white.withOpacity(0.15),
-                ),
-              ),
-              _DrawerItem(
-                icon: Icons.cloud_upload_outlined,
-                title: 'Cargar datos de prueba',
-                active: false,
-                onTap: () => _cargarDatosDePrueba(context),
-              ),
-            ],
             const SizedBox(height: 12),
           ],
         ),
