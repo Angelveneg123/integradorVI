@@ -5,6 +5,8 @@ import 'Chino/frontend/MateriaPrima.dart';
 import 'Henry/frontend/Sucursales.dart';
 import 'Chino/frontend/Reportes.dart';
 import 'Chino/frontend/Stock.dart';
+import 'Mauricio/crud_ventas.dart';
+
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({
@@ -37,11 +39,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   void selectSection(int index) {
     switch (index) {
-      // TODO(compañeros): enlazar aquí Ventas (índice 1) y Productos
-      // (índice 2), igual que los casos de abajo. Ejemplo:
-      //   case 1:
-      //     _abrirModuloChino(const VentasScreen());
-      //     return;
+      case 1:
+        _abrirModuloChino(const VentasApp());
+        return;
       case _indiceInventario:
         _abrirModuloChino(const StockScreen());
         return;
