@@ -5,6 +5,7 @@ import 'Chino/frontend/MateriaPrima.dart';
 import 'Henry/frontend/Sucursales.dart';
 import 'Chino/frontend/Reportes.dart';
 import 'Chino/frontend/Stock.dart';
+import 'Dennis/frontend/Productos.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({
@@ -29,14 +30,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   // Índices del menú del Lobby que ya están implementados por Chino y
   // deben navegar de verdad (los demás, por ahora, solo resaltan el ítem).
+  static const int _indiceProductos = 2;
   static const int _indiceInventario = 3;
   static const int _indiceReportes = 6;
   static const int _indiceAuditoria = 7;
   static const int _indiceIngredientes = 8;
   static const int _indiceSucursales = 5;
-
   void selectSection(int index) {
     switch (index) {
+
+      case _indiceProductos:
+        _abrirModuloChino(const ProductosScreen());
+        return;
       // TODO(compañeros): enlazar aquí Ventas (índice 1) y Productos
       // (índice 2), igual que los casos de abajo. Ejemplo:
       //   case 1:
