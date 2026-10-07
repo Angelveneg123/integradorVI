@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase_options.dart';
 
-
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -65,24 +63,17 @@ class ProductList {
   });
 }
 
-class SucursalList{
+class SucursalList {
   String nombreU;
 
-  SucursalList({
-    required this.nombreU,
-  });
+  SucursalList({required this.nombreU});
 }
 
-
-class UsuarioData{
+class UsuarioData {
   String SucursalUsuario;
 
-  UsuarioData({
-    required this.SucursalUsuario,
-  });
+  UsuarioData({required this.SucursalUsuario});
 }
-
-
 
 // PANTALLA PRINCIPAL
 
@@ -123,7 +114,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
         if (itemsFirestore != null) {
           listaProductos = itemsFirestore.map((item) {
-            final precioVal = (item['precioUnitario'] ?? item['precio']) as num?;
+            final precioVal =
+                (item['precioUnitario'] ?? item['precio']) as num?;
             return ProductList(
               codigo: item['codigo']?.toString() ?? '',
               nombre: item['nombre']?.toString() ?? '',
@@ -135,9 +127,14 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
         return CRUDVentas(
           id: doc.id,
-          codigoV: data['codigoV']?.toString() ?? doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length),
+          codigoV:
+              data['codigoV']?.toString() ??
+              doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length),
           estado: data['estado']?.toString() ?? 'Activo',
-          sucursalU: data['sucursal']?.toString() ?? data['sucursalU']?.toString() ?? 'Norte',
+          sucursalU:
+              data['sucursal']?.toString() ??
+              data['sucursalU']?.toString() ??
+              'Norte',
           fecha: data['fecha']?.toString() ?? '',
           productos: listaProductos,
         );
@@ -191,9 +188,6 @@ class _ProductosScreenState extends State<ProductosScreen> {
       }).toList(),
 
       'sucursalU': venta.sucursalU,
-
-
-
     };
   }
   ////////////////////////ventaToMap/////////////////////////////////////////////////////////////
@@ -239,7 +233,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
   //FILTRAR Ventas////////////////////////////////////////////////////////////////
 
   List<CRUDVentas> get ventasFiltrados {
-    return Listventas.where((ventas) {
+    final listaFiltrada = Listventas.where((ventas) {
       final coincideBusqueda = ventas.codigoV.toLowerCase().contains(
         textoBusqueda.toLowerCase(),
       );
@@ -252,9 +246,27 @@ class _ProductosScreenState extends State<ProductosScreen> {
       if (filtro == 'Inactivos') {
         coincideFiltro = ventas.estado == 'Inactivo';
       }
-      // if (filtro == 'Repostería') {coincideFiltro = ventas.categoria == 'Repostería';}
+      if (filtro == 'Mas resiente ' ||
+          filtro == 'Más reciente' ||
+          filtro == 'Mas reciente') {
+        coincideFiltro = true;
+      }
       return coincideBusqueda && coincideFiltro;
     }).toList();
+
+    // Ordenar de la fecha más reciente a la más antigua
+    listaFiltrada.sort((a, b) {
+      final DateTime? fechaA = DateTime.tryParse(a.fecha);
+      final DateTime? fechaB = DateTime.tryParse(b.fecha);
+      if (fechaA == null && fechaB == null) return 0;
+      if (fechaA == null) return 1;
+      if (fechaB == null) return -1;
+      return fechaB.compareTo(
+        fechaA,
+      ); // Orden descendiente (más reciente primero)
+    });
+
+    return listaFiltrada;
   }
 
   //LIMPIAR FORMULARIO//////////////////////////////////////////////////////////
@@ -365,7 +377,6 @@ class _ProductosScreenState extends State<ProductosScreen> {
       mostrarMensaje('Error al guardar: $e');
       print(' ERROR AL REGIISTRAR LA VENTA: $e');
     }
-
   }
   // GUARDAR///////////////////////////////////////////////////////////////////
 
@@ -381,11 +392,11 @@ class _ProductosScreenState extends State<ProductosScreen> {
           title: const Text('Eliminar Registro'),
           content: Text(
             '¿Está seguro de este registro? '
-                '"${venta.codigoV}"\n"'
-                '"${productosTemp}"\n"'
-                '"${venta.sucursalU}"\n"'
-                '"${venta.codigoV}"\n"'
-                '\n"${venta.fecha}"?',
+            '"${venta.codigoV}"\n"'
+            '"${productosTemp}"\n"'
+            '"${venta.sucursalU}"\n"'
+            '"${venta.codigoV}"\n"'
+            '\n"${venta.fecha}"?',
           ),
           actions: [
             TextButton(
@@ -460,7 +471,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
       if (snapshot.docs.isNotEmpty) {
         final data = snapshot.docs.first.data();
-        final sucursalNombre = data['sucursal']?.toString() ??
+        final sucursalNombre =
+            data['sucursal']?.toString() ??
             data['sucursalNombre']?.toString() ??
             data['nombreSucursal']?.toString() ??
             'Centro';
@@ -538,10 +550,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
   //////////////////Importante agragar ////////////////////////////////////////////
   List<ProductList> listaProductos = [];
   ProductList? productoSeleccionado;
-
+  //-----agrega la lista de productos -----------------------------------------
   void agregarProductoVenta() {
-    limpiarFormulario();
-
     final cantidadController = TextEditingController(text: '1');
     ProductList? productoSeleccionadoDialogo;
 
@@ -551,22 +561,22 @@ class _ProductosScreenState extends State<ProductosScreen> {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
             return AlertDialog(
-              title: const Text('Agregar producto a la venta'),
+              title: const Text('Agregar productos a la venta'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
-
-
                   DropdownButtonFormField<ProductList>(
                     value: productoSeleccionadoDialogo,
-                    decoration: const InputDecoration(labelText: 'Seleccionar Producto', border: OutlineInputBorder(),),
-                    items: listaProductos.map((producto)
-                    {
-                      return DropdownMenuItem<ProductList>
-                        (
+                    decoration: const InputDecoration(
+                      labelText: 'Seleccionar Producto',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: listaProductos.map((producto) {
+                      return DropdownMenuItem<ProductList>(
                         value: producto,
-                        child: Text('${producto.nombre} (C\$ ${producto.precio.toStringAsFixed(2)})'),
+                        child: Text(
+                          '${producto.nombre} (C\$ ${producto.precio.toStringAsFixed(2)})',
+                        ),
                       );
                     }).toList(),
                     onChanged: (value) {
@@ -576,24 +586,29 @@ class _ProductosScreenState extends State<ProductosScreen> {
                     },
                   ),
 
-
                   const SizedBox(height: 15),
+
                   TextField(
-                    controller: cantidadController, keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Cantidad', border: OutlineInputBorder(),),
+                    controller: cantidadController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Cantidad',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancelar'),
+                  child: const Text('Cerrar'),
                 ),
 
                 ElevatedButton(
                   onPressed: () {
                     if (productoSeleccionadoDialogo == null) return;
-                    final cantidad = double.tryParse(cantidadController.text) ?? 1.0;
+                    final cantidad =
+                        double.tryParse(cantidadController.text) ?? 1.0;
 
                     setState(() {
                       productosTemp.add(
@@ -606,7 +621,13 @@ class _ProductosScreenState extends State<ProductosScreen> {
                       );
                     });
 
-                    Navigator.pop(context);
+                    // Limpiar selección para añadir otro producto sin cerrar el diálogo
+                    setStateDialog(() {
+                      productoSeleccionadoDialogo = null;
+                      cantidadController.text = '1';
+                    });
+
+                    mostrarMensaje('Producto agregado a la lista');
                   },
                   child: const Text('Agregar'),
                 ),
@@ -616,7 +637,6 @@ class _ProductosScreenState extends State<ProductosScreen> {
         );
       },
     );
-    limpiarFormulario();
   }
 
   //////////////////Importante agragar ////////////////////////////////////////////
@@ -624,14 +644,11 @@ class _ProductosScreenState extends State<ProductosScreen> {
   List<SucursalList> listaSucursal = [];
   SucursalList? sucursalSeleccionada;
 
-
   List<UsuarioData> SucursalAsignada = [];
   UsuarioData? SucursalUsuarioSeleccionada;
   //////////////////SucursalList ////////////////////////////////////////////
-  void seleccionarSucursal(){
+  void seleccionarSucursal() {
     UsuarioData? SucursalUsuarioSeleccionadaDialogo;
-
-
 
     showDialog(
       context: context,
@@ -643,36 +660,46 @@ class _ProductosScreenState extends State<ProductosScreen> {
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
-
-
-
-//--------------------------------------------------------------------------------
+                  //--------------------------------------------------------------------------------
                   DropdownButtonFormField<UsuarioData>(
                     value: SucursalUsuarioSeleccionadaDialogo,
-                    decoration: const InputDecoration(labelText: 'Seleccionar Sucursal', border: OutlineInputBorder(),),
-                    items: SucursalAsignada.map((sucursalAsignada) {return DropdownMenuItem<UsuarioData>
-                      (
-                      value: sucursalAsignada,
-                      child: Text('${sucursalAsignada.SucursalUsuario} '),
-                    );
+                    decoration: const InputDecoration(
+                      labelText: 'Seleccionar Sucursal',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: SucursalAsignada.map((sucursalAsignada) {
+                      return DropdownMenuItem<UsuarioData>(
+                        value: sucursalAsignada,
+                        child: Text('${sucursalAsignada.SucursalUsuario} '),
+                      );
                     }).toList(),
-                    onChanged: (value) {setStateDialog(() {SucursalUsuarioSeleccionadaDialogo = value;});},
+                    onChanged: (value) {
+                      setStateDialog(() {
+                        SucursalUsuarioSeleccionadaDialogo = value;
+                      });
+                    },
                   ),
-//------------------------------------------------------------------------------
-
-
-
+                  //------------------------------------------------------------------------------
 
                   const SizedBox(height: 15),
                 ],
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar'),),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
+                ),
                 ElevatedButton(
                   onPressed: () {
                     if (SucursalUsuarioSeleccionadaDialogo == null) return;
-                    setState(() {SucursalAsignada.add(UsuarioData(SucursalUsuario: SucursalUsuarioSeleccionadaDialogo!.SucursalUsuario,),);});
+                    setState(() {
+                      SucursalAsignada.add(
+                        UsuarioData(
+                          SucursalUsuario: SucursalUsuarioSeleccionadaDialogo!
+                              .SucursalUsuario,
+                        ),
+                      );
+                    });
                     Navigator.pop(context);
                   },
                   child: const Text('Seleccionar'),
@@ -685,8 +712,6 @@ class _ProductosScreenState extends State<ProductosScreen> {
     );
   }
   //////////////////SucursalList ////////////////////////////////////////////
-
-
 
   // BUILD
 
@@ -704,14 +729,12 @@ class _ProductosScreenState extends State<ProductosScreen> {
               ? construirFormulario(true)
               : construirInformacion(),
         ),
-
       ),
-
     );
   }
 
   // LISTA
-//Pantalla ver o mostrar
+  //Pantalla ver o mostrar
   Widget construirLista() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -760,6 +783,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
         Wrap(
           spacing: 8,
           children: [
+            //--------------------------------------------------
+            // filtroBoton('Mas resiente '),
             filtroBoton('Todos'),
             filtroBoton('Activos'),
             filtroBoton('Inactivos'),
@@ -774,18 +799,18 @@ class _ProductosScreenState extends State<ProductosScreen> {
               ? const Center(child: CircularProgressIndicator())
               : ventasFiltrados.isEmpty
               ? const Center(
-            child: Text(
-              'No hay registros',
-              style: TextStyle(color: Colors.grey, fontSize: 18),
-            ),
-          )
+                  child: Text(
+                    'No hay registros',
+                    style: TextStyle(color: Colors.grey, fontSize: 18),
+                  ),
+                )
               : ListView.builder(
-            itemCount: ventasFiltrados.length,
-            itemBuilder: (context, index) {
-              final venta = ventasFiltrados[index];
-              return tarjetaventas(venta);
-            },
-          ),
+                  itemCount: ventasFiltrados.length,
+                  itemBuilder: (context, index) {
+                    final venta = ventasFiltrados[index];
+                    return tarjetaventas(venta);
+                  },
+                ),
         ),
       ],
     );
@@ -829,7 +854,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
         ),
         subtitle: Text(
           'Sucursal: ${ventaT.sucursalU}\n'
-              'Productos: ${ventaT.productos.length}',
+          'Productos: ${ventaT.productos.length}',
         ),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -850,7 +875,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
   }
 
   // INFORMACIÓN DEL PRODUCTO----------------------------------------------------
-//FORMULARIO DE INFORMACION ESPESIFICA DE LA VENTA SELECCIONADA////////////////////
+  //FORMULARIO DE INFORMACION ESPESIFICA DE LA VENTA SELECCIONADA////////////////////
   Widget construirInformacion() {
     final ventaI = ventaSeleccionado!;
     if (ventaI.productos.isEmpty) {
@@ -879,28 +904,42 @@ class _ProductosScreenState extends State<ProductosScreen> {
         Row(
           children: [
             Expanded(
-              child: Text(producto.nombre, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold,),),
+              // child: Text(ventaI.codigoV, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold,),),
+
+              child: Text(
+                'Registro',
+                style: const TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
-            Text(
-              'C\$${producto.precio.toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
+            // Text(
+            //   'C\$${producto.precio.toStringAsFixed(2)}',
+            //   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            // ),
           ],
         ),
 
         const SizedBox(height: 8),
         estadoProducto(ventaI.estado),
         const SizedBox(height: 20),
-        const Text('Información', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),),
+        const Text(
+          'Información',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         const SizedBox(height: 10),
-        infoDato('Código', producto.codigo),
-        infoDato('Nombre del producto', producto.nombre),
-        infoDato('Stock actual', producto.cantidad.toStringAsFixed(0)),
+        infoDato('Código', ventaI.codigoV),
+        // infoDato('Nombre del producto', producto.nombre),
+        infoDato('Cantidad vendida', producto.cantidad.toStringAsFixed(0)),
         infoDato('Sucursal', ventaI.sucursalU),
         infoDato('Estado', ventaI.estado),
 
         const SizedBox(height: 15),
-        const Text('Productos', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),),
+        const Text(
+          'Lista de productos',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         const SizedBox(height: 10),
 
         Expanded(
@@ -909,6 +948,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
               return ListTile(
                 dense: true,
                 title: Text(producto.nombre),
+
                 trailing: Text(producto.cantidad.toString()),
               );
             }).toList(),
@@ -950,7 +990,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
   //revisar--------------------------------------- Formulario registro de ventas
   //CARD de los productos anadidos a la venta ///////////////////////////////
-// Anadir y editar los registros de ventas !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  // Anadir y editar los registros de ventas !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   Widget construirFormulario(bool editar) {
     return SingleChildScrollView(
       child: Column(
@@ -987,32 +1027,43 @@ class _ProductosScreenState extends State<ProductosScreen> {
           campo('Estado', EstadoVentaController, 'Seleccionar'),
           const SizedBox(height: 10),
 
-const Text('Productos de la venta', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),),
-const SizedBox(height: 10),
-productosTemp.isEmpty ? const Text('No hay productos agregados', style: TextStyle(color: Colors.grey),)
-              : Column(
-  //CRRD de los productos anadidos a la venta ///////////////////////////////
-
-children: productosTemp.map((prod) {
-              return Card(
-                child: ListTile(
-                  title: Text(prod.nombre),
-                  subtitle: Text('Cantidad: ${prod.cantidad} - Precio: C\$ ${prod.precio.toStringAsFixed(2)}'),
-                  trailing: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        productosTemp.remove(prod);
-                      });
-                    },
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  ),
-                ),
-              );
-            }).toList(),
+          const Text(
+            'Productos de la venta',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
+          const SizedBox(height: 10),
+          productosTemp.isEmpty
+              ? const Text(
+                  'No hay productos agregados',
+                  style: TextStyle(color: Colors.grey),
+                )
+              : Column(
+                  //CRRD de los productos anadidos a la venta ///////////////////////////////
+
+                  children: productosTemp.map((prod) {
+                    return Card(
+                      child: ListTile(
+                        title: Text(prod.nombre),
+                        subtitle: Text(
+                          'Cantidad: ${prod.cantidad} - Precio: C\$ ${prod.precio.toStringAsFixed(2)}',
+                        ),
+                        trailing: IconButton(
+                          onPressed: () {
+                            setState(() {
+                              productosTemp.remove(prod);
+                            });
+                          },
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
 
           //CRRD de los productos anadidos a la venta ///////////////////////////////
-
           const SizedBox(height: 10),
 
           OutlinedButton.icon(
@@ -1074,7 +1125,10 @@ children: productosTemp.map((prod) {
     );
   }
 
-  Future<void> _seleccionarFechaHora(BuildContext context, TextEditingController controller) async {
+  Future<void> _seleccionarFechaHora(
+    BuildContext context,
+    TextEditingController controller,
+  ) async {
     final DateTime? fechaSeleccionada = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
@@ -1124,11 +1178,11 @@ children: productosTemp.map((prod) {
 
   // CAMPO
   Widget campo(
-      String titulo,
-      TextEditingController controller,
-      String hint, {
-        TextInputType teclado = TextInputType.text,
-      }) {
+    String titulo,
+    TextEditingController controller,
+    String hint, {
+    TextInputType teclado = TextInputType.text,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: TextField(
