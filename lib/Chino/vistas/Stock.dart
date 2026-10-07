@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'AppDrawer.dart';
-import '../backend/producto_modelo.dart';
-import '../backend/productos_service.dart';
-import '../backend/stock_service.dart';
+import '../modelos/producto_modelo.dart';
+import '../controladores/productos_service.dart';
+import '../controladores/stock_service.dart';
 
 // Colores reutilizados del diseño de la app (mismos que en main.dart)
 const Color _textoOscuro = Color(0xFF5A3E36);

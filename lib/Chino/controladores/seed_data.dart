@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'evento_auditoria_modelo.dart';
-import 'producto_modelo.dart';
-import 'venta_modelo.dart';
+import '../modelos/evento_auditoria_modelo.dart';
+import '../modelos/producto_modelo.dart';
+import '../modelos/venta_modelo.dart';
 
 /// Llena Firestore con datos de ejemplo para poder probar Stock, Reportes
 /// y Auditoria SIN necesitar todavía los módulos de Productos y Ventas

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'firebase_options.dart';
 import 'lobby.dart';
+import 'Chino/modelos/usuario_modelo.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,13 +62,122 @@ class AuthGate extends StatelessWidget {
             nombre = user.email!.split('@').first;
           }
 
-          return LobbyScreen(
-            userName: nombre,
+          return _PerfilGate(
+            user: user,
+            nombreInicial: nombre,
           );
         }
 
         return const LoginScreen();
       },
+    );
+  }
+}
+
+/// Revisa el perfil del usuario en Firestore (`usuarios/{uid}`): si la
+/// cuenta está inactiva o eliminada no deja entrar. Si no hay perfil (cuentas
+/// creadas a mano en la consola de Firebase) deja entrar, para no bloquear
+/// al administrador inicial.
+class _PerfilGate extends StatelessWidget {
+  const _PerfilGate({
+    required this.user,
+    required this.nombreInicial,
+  });
+
+  final User user;
+  final String nombreInicial;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection(kColeccionUsuarios)
+          .doc(user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final data = snapshot.data?.data();
+        if (data != null) {
+          final estado = (data['estado'] ?? 'Activo') as String;
+          if (estado != 'Activo') {
+            return const _CuentaBloqueada();
+          }
+
+          final nombre = ((data['nombre'] ?? '') as String).trim();
+          if (nombre.isNotEmpty) {
+            return LobbyScreen(userName: nombre.split(' ').first);
+          }
+        }
+
+        return LobbyScreen(userName: nombreInicial);
+      },
+    );
+  }
+}
+
+class _CuentaBloqueada extends StatelessWidget {
+  const _CuentaBloqueada();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.lock_outline,
+                  size: 48,
+                  color: Color(0xFFA65021),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Cuenta desactivada',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF5A3E36),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Tu cuenta no tiene acceso al sistema. '
+                  'Comunícate con el administrador.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF7A6B65)),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => FirebaseAuth.instance.signOut(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFA65021),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 14,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Cerrar sesión'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

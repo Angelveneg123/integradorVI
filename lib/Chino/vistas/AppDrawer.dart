@@ -4,7 +4,10 @@ import 'Stock.dart';
 import 'Auditoria.dart';
 import 'Reportes.dart';
 import 'MateriaPrima.dart';
-import '../../Henry/frontend/Sucursales.dart';
+import 'Usuarios.dart';
+import '../../Henry/vistas/Sucursales.dart';
+import '../../Dennis/vistas/productos.dart';
+import '../../Mauricio/vistas/crud_ventas.dart' show VentasScreen;
 
 // Mismos colores que usa la barra lateral del Lobby (ver lobby.dart), para
 // que la navegación se vea igual en todos los módulos de Chino.
@@ -18,6 +21,7 @@ enum ModuloApp {
   productos,
   stock,
   materiaPrima,
+  usuarios,
   sucursales,
   auditoria,
   reportes,
@@ -43,16 +47,11 @@ class AppDrawer extends StatelessWidget {
     if (modulo == moduloActual) return; // ya estás en ese módulo
 
     final Widget pantalla = switch (modulo) {
-      // TODO(compañeros): Ventas y Productos todavía no tienen pantalla.
-      // Cuando existan, reemplaza esta línea por dos:
-      //   ModuloApp.ventas => const VentasScreen(),
-      //   ModuloApp.productos => const ProductosScreen(),
-      // (y agrega el import de cada pantalla arriba).
-      ModuloApp.ventas ||
-      ModuloApp.productos =>
-        throw UnimplementedError('Módulo pendiente de enlazar'),
+      ModuloApp.ventas => const VentasScreen(),
+      ModuloApp.productos => const ProductosScreen(),
       ModuloApp.stock => const StockScreen(),
       ModuloApp.materiaPrima => const MateriaPrimaScreen(),
+      ModuloApp.usuarios => const UsuariosScreen(),
       ModuloApp.sucursales => const SucursalesScreen(),
       ModuloApp.auditoria => const AuditoriaScreen(),
       ModuloApp.reportes => const ReportesScreen(),
@@ -151,41 +150,6 @@ class AppDrawer extends StatelessWidget {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 11,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.08),
-                  ),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.auto_awesome_outlined,
-                      color: Colors.white70,
-                      size: 16,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Ventas • Productos • Inventario • Reportes',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 22, 20, 8),
               child: Align(
@@ -216,19 +180,13 @@ class AppDrawer extends StatelessWidget {
                       icon: Icons.point_of_sale_outlined,
                       title: 'Ventas',
                       active: moduloActual == ModuloApp.ventas,
-                      // TODO(compañeros): enlazar Ventas. Cuando exista la
-                      // pantalla, cambia esto por:
-                      //   onTap: () => _irA(context, ModuloApp.ventas),
-                      onTap: () {},
+                      onTap: () => _irA(context, ModuloApp.ventas),
                     ),
                     _DrawerItem(
                       icon: Icons.inventory_2_outlined,
                       title: 'Productos',
                       active: moduloActual == ModuloApp.productos,
-                      // TODO(compañeros): enlazar Productos. Cuando exista la
-                      // pantalla, cambia esto por:
-                      //   onTap: () => _irA(context, ModuloApp.productos),
-                      onTap: () {},
+                      onTap: () => _irA(context, ModuloApp.productos),
                     ),
                     _DrawerItem(
                       icon: Icons.warehouse_outlined,
@@ -241,6 +199,12 @@ class AppDrawer extends StatelessWidget {
                       title: 'Ingredientes',
                       active: moduloActual == ModuloApp.materiaPrima,
                       onTap: () => _irA(context, ModuloApp.materiaPrima),
+                    ),
+                    _DrawerItem(
+                      icon: Icons.people_outline,
+                      title: 'Usuarios',
+                      active: moduloActual == ModuloApp.usuarios,
+                      onTap: () => _irA(context, ModuloApp.usuarios),
                     ),
                     _DrawerItem(
                       icon: Icons.storefront_outlined,

@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'productos_modelos.dart';
+import '../modelos/productos_modelos.dart';
 
 class ProductosService {
   final CollectionReference<Map<String, dynamic>> productosRef =

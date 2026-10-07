@@ -2,12 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../Chino/backend/auditoria_service.dart';
-import '../../Chino/backend/evento_auditoria_modelo.dart';
-import '../../Chino/backend/materia_prima_modelo.dart';
-import '../../Chino/backend/producto_modelo.dart';
-import 'sucursal_modelo.dart';
-import '../../Chino/backend/venta_modelo.dart';
+import '../../Chino/controladores/auditoria_service.dart';
+import '../../Chino/modelos/evento_auditoria_modelo.dart';
+import '../../Chino/modelos/materia_prima_modelo.dart';
+import '../../Chino/modelos/producto_modelo.dart';
+import '../modelos/sucursal_modelo.dart';
+import '../../Chino/modelos/venta_modelo.dart';
 
 /// CRUD de la colección `sucursales` en Firestore.
 ///
