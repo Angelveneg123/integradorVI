@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'evento_auditoria_modelo.dart';
+import '../modelos/evento_auditoria_modelo.dart';
 
 /// Acceso a la colección `auditoria`.
 ///
@@ -9,7 +9,7 @@ import 'evento_auditoria_modelo.dart';
 /// módulo de Auditoria solo lee esta colección para mostrar la bitácora;
 /// por eso es difícil de probar "solo", y la forma real de probarlo es
 /// generando eventos desde los otros módulos (o con los datos de prueba
-/// de `lib/Chino/backend/seed_data.dart`).
+/// de `lib/Chino/controladores/seed_data.dart`).
 class AuditoriaService {
   AuditoriaService({FirebaseFirestore? firestore})
       : _db = firestore ?? FirebaseFirestore.instance;

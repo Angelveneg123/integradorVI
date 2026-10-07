@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'producto_modelo.dart';
+import '../modelos/producto_modelo.dart';
 
 /// Acceso de solo lectura (desde Chino) a la colección `productos`.
 ///

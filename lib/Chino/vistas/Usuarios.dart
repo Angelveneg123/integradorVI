@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../../Chino/frontend/AppDrawer.dart';
-import '../backend/sucursal_modelo.dart';
-import '../backend/sucursales_service.dart';
+import 'AppDrawer.dart';
+import '../modelos/usuario_modelo.dart';
+import '../controladores/usuarios_service.dart';
+import '../../Henry/modelos/sucursal_modelo.dart';
+import '../../Henry/controladores/sucursales_service.dart';
 
-// Mismos colores que usan Stock, Reportes, Auditoría y Materia Prima.
+// Mismos colores y estilos que usan Materia Prima, Sucursales y Productos.
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
@@ -13,6 +14,7 @@ const Color _colorBorde = Color(0xFFE8DFD8);
 const Color _fondoInput = Color(0xFFFCFAF7);
 const Color _rojo = Color(0xFFB3261E);
 
+/// Convierte una excepción en un texto corto para mostrar en un SnackBar.
 String _mensajeError(Object e) => e
     .toString()
     .replaceFirst('Bad state: ', '')
@@ -33,52 +35,71 @@ InputDecoration _decoracionCampo({String? hint}) {
       borderRadius: BorderRadius.circular(10),
       borderSide: const BorderSide(color: _colorAcento),
     ),
+    disabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: _colorBorde),
+    ),
   );
 }
 
 // ---------------------------------------------------------------------------
-// 1. Lista de Sucursales (pantalla principal del módulo, con menú lateral)
+// 1. Lista de Usuarios (pantalla principal del módulo, con menú lateral)
 // ---------------------------------------------------------------------------
 
-class SucursalesScreen extends StatefulWidget {
-  const SucursalesScreen({super.key});
+class UsuariosScreen extends StatefulWidget {
+  const UsuariosScreen({super.key});
 
   @override
-  State<SucursalesScreen> createState() => _SucursalesScreenState();
+  State<UsuariosScreen> createState() => _UsuariosScreenState();
 }
 
-class _SucursalesScreenState extends State<SucursalesScreen> {
+class _UsuariosScreenState extends State<UsuariosScreen> {
+  static const List<String> _filtros = [
+    'Todos',
+    'Activos',
+    'Inactivos',
+    'Administradores',
+    'Vendedores',
+  ];
+
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _buscadorController = TextEditingController();
-  final SucursalesService _service = SucursalesService();
-  late final Stream<List<Sucursal>> _stream = _service.streamSucursales();
+  final UsuariosService _service = UsuariosService();
 
+  String _filtroSeleccionado = 'Todos';
   String _textoBusqueda = '';
 
-  List<Sucursal> _filtrar(List<Sucursal> lista) {
+  List<Usuario> _filtrar(List<Usuario> lista) {
     final texto = _textoBusqueda.trim().toLowerCase();
-    if (texto.isEmpty) return lista;
-    return lista
-        .where((s) =>
-            s.nombre.toLowerCase().contains(texto) ||
-            s.ciudad.toLowerCase().contains(texto) ||
-            s.encargado.toLowerCase().contains(texto) ||
-            s.codigo.toLowerCase().contains(texto))
-        .toList();
+    return lista.where((u) {
+      final coincideTexto = texto.isEmpty ||
+          u.nombre.toLowerCase().contains(texto) ||
+          u.correo.toLowerCase().contains(texto) ||
+          u.codigo.toLowerCase().contains(texto);
+      final coincideFiltro = switch (_filtroSeleccionado) {
+        'Todos' => true,
+        'Activos' => u.activo,
+        'Inactivos' => !u.activo,
+        'Administradores' => u.esAdministrador,
+        'Vendedores' => u.rol == 'Vendedor',
+        _ => true,
+      };
+      return coincideTexto && coincideFiltro;
+    }).toList();
   }
 
-  Future<void> _nueva() async {
+  Future<void> _nuevo() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => SucursalFormScreen(service: _service)),
+      MaterialPageRoute(builder: (_) => UsuarioFormScreen(service: _service)),
     );
   }
 
-  Future<void> _abrirDetalle(Sucursal s) async {
+  Future<void> _abrirDetalle(Usuario usuario) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => DetalleSucursalScreen(id: s.id, service: _service),
+        builder: (_) => DetalleUsuarioScreen(id: usuario.id, service: _service),
       ),
     );
   }
@@ -93,11 +114,11 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      drawer: const AppDrawer(moduloActual: ModuloApp.sucursales),
+      drawer: const AppDrawer(moduloActual: ModuloApp.usuarios),
       body: SafeArea(
         child: Column(
           children: [
-            ChinoTopBar(scaffoldKey: _scaffoldKey, subtitulo: 'Sucursales'),
+            ChinoTopBar(scaffoldKey: _scaffoldKey, subtitulo: 'Usuarios'),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -105,7 +126,7 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Sucursales',
+                      'Usuarios',
                       style: TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
@@ -114,15 +135,18 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Puntos de venta de la panadería',
+                      'Registro de usuarios',
                       style: TextStyle(fontSize: 13, color: _textoClaro),
                     ),
                     const SizedBox(height: 16),
+
+                    // Buscador
                     TextField(
                       controller: _buscadorController,
                       onChanged: (v) => setState(() => _textoBusqueda = v),
-                      decoration: _decoracionCampo(hint: 'Buscar sucursal...')
-                          .copyWith(
+                      decoration: _decoracionCampo(
+                        hint: 'Buscar usuario...',
+                      ).copyWith(
                         prefixIcon:
                             const Icon(Icons.search, color: _textoClaro),
                         contentPadding:
@@ -130,10 +154,43 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
+
+                    // Filtros tipo pill
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _filtros.map((filtro) {
+                        final seleccionado = _filtroSeleccionado == filtro;
+                        return ChoiceChip(
+                          label: Text(filtro),
+                          selected: seleccionado,
+                          onSelected: (_) =>
+                              setState(() => _filtroSeleccionado = filtro),
+                          labelStyle: TextStyle(
+                            color: seleccionado ? Colors.white : _textoOscuro,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                          selectedColor: _colorAcento,
+                          backgroundColor: _fondoInput,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color:
+                                  seleccionado ? _colorAcento : _colorBorde,
+                            ),
+                          ),
+                          showCheckmark: false,
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Botón Nuevo
                     Align(
                       alignment: Alignment.centerRight,
                       child: ElevatedButton.icon(
-                        onPressed: _nueva,
+                        onPressed: _nuevo,
                         icon: const Icon(Icons.add, size: 18),
                         label: const Text('Nuevo'),
                         style: ElevatedButton.styleFrom(
@@ -152,23 +209,24 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'LISTADO',
+                      'Listado',
                       style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.6,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
                         color: _textoOscuro,
                       ),
                     ),
                     const SizedBox(height: 10),
-                    StreamBuilder<List<Sucursal>>(
-                      stream: _stream,
+
+                    // Lista en vivo desde Firestore
+                    StreamBuilder<List<Usuario>>(
+                      stream: _service.streamUsuarios(),
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
                           return _MensajeEstado(
                             icono: Icons.error_outline,
                             texto:
-                                'Error al leer sucursales: ${snapshot.error}',
+                                'Error al leer usuarios: ${snapshot.error}',
                           );
                         }
                         if (!snapshot.hasData) {
@@ -181,21 +239,22 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                             ),
                           );
                         }
+
                         final lista = _filtrar(snapshot.data!);
                         if (lista.isEmpty) {
                           return const _MensajeEstado(
-                            icono: Icons.storefront_outlined,
-                            texto: 'No hay sucursales.\n'
-                                'Toca "Nuevo" para registrar la primera.',
+                            icono: Icons.people_outline,
+                            texto: 'No se encontraron usuarios.\n'
+                                'Toca "Nuevo" para registrar el primero.',
                           );
                         }
+
                         return Column(
                           children: lista
                               .map(
-                                (s) => _TarjetaSucursal(
-                                  sucursal: s,
-                                  service: _service,
-                                  onTap: () => _abrirDetalle(s),
+                                (u) => _TarjetaUsuario(
+                                  usuario: u,
+                                  onTap: () => _abrirDetalle(u),
                                 ),
                               )
                               .toList(),
@@ -247,7 +306,8 @@ class _EtiquetaEstado extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = activo ? const Color(0xFF2E9E4F) : const Color(0xFFD9822B);
+    // Activo en verde e Inactivo en naranja, como en el diseño de Figma.
+    final color = activo ? const Color(0xFF2E9E4F) : const Color(0xFFD9692B);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
@@ -255,7 +315,7 @@ class _EtiquetaEstado extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        activo ? 'Activa' : 'Inactiva',
+        activo ? 'Activo' : 'Inactivo',
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
@@ -266,28 +326,11 @@ class _EtiquetaEstado extends StatelessWidget {
   }
 }
 
-class _TarjetaSucursal extends StatelessWidget {
-  final Sucursal sucursal;
-  final SucursalesService service;
+class _TarjetaUsuario extends StatelessWidget {
+  final Usuario usuario;
   final VoidCallback onTap;
 
-  const _TarjetaSucursal({
-    required this.sucursal,
-    required this.service,
-    required this.onTap,
-  });
-
-  /// "4 productos · 2 ventas" (se consulta a Firestore por cada tarjeta).
-  Future<String> _conteos() async {
-    final r = await Future.wait([
-      service.contarProductos(sucursal.nombre),
-      service.contarVentas(sucursal.nombre),
-    ]);
-    final p = r[0];
-    final v = r[1];
-    return '$p ${p == 1 ? 'producto' : 'productos'} · '
-        '$v ${v == 1 ? 'venta' : 'ventas'}';
-  }
+  const _TarjetaUsuario({required this.usuario, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -313,41 +356,28 @@ class _TarjetaSucursal extends StatelessWidget {
                       children: [
                         Flexible(
                           child: Text(
-                            sucursal.etiqueta,
-                            maxLines: 1,
+                            usuario.nombre,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 15,
+                              fontSize: 16,
                               fontWeight: FontWeight.w800,
                               color: _textoOscuro,
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        _EtiquetaEstado(activo: sucursal.activo),
+                        _EtiquetaEstado(activo: usuario.activo),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${sucursal.direccion}, ${sucursal.ciudad}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      '${usuario.rol} · ${etiquetaSucursal(usuario.sucursal)}',
                       style: const TextStyle(fontSize: 12, color: _textoClaro),
-                    ),
-                    const SizedBox(height: 2),
-                    FutureBuilder<String>(
-                      future: _conteos(),
-                      builder: (context, snap) => Text(
-                        snap.data ?? '...',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _textoClaro,
-                        ),
-                      ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(width: 6),
               const Icon(Icons.chevron_right, size: 20, color: _textoClaro),
             ],
           ),
@@ -358,53 +388,58 @@ class _TarjetaSucursal extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// 2 y 4. Nueva sucursal / Editar sucursal (mismo formulario)
+// 2 y 4. Nuevo usuario / Editar usuario (mismo formulario)
 // ---------------------------------------------------------------------------
 
-class SucursalFormScreen extends StatefulWidget {
-  /// Si es `null` crea una sucursal nueva; si trae una, la edita.
-  final Sucursal? sucursal;
-  final SucursalesService service;
+class UsuarioFormScreen extends StatefulWidget {
+  /// Si es `null` el formulario crea un usuario nuevo; si trae uno, lo edita.
+  final Usuario? usuario;
+  final UsuariosService service;
 
-  const SucursalFormScreen({super.key, required this.service, this.sucursal});
+  const UsuarioFormScreen({super.key, required this.service, this.usuario});
 
   @override
-  State<SucursalFormScreen> createState() => _SucursalFormScreenState();
+  State<UsuarioFormScreen> createState() => _UsuarioFormScreenState();
 }
 
-class _SucursalFormScreenState extends State<SucursalFormScreen> {
+class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
   late final TextEditingController _nombreController;
-  late final TextEditingController _encargadoController;
-  late final TextEditingController _direccionController;
-  late final TextEditingController _personalController;
-  String? _ciudad;
-  late String _estado;
+  late final TextEditingController _correoController;
+  late final TextEditingController _passwordController;
+  late final TextEditingController _telefonoController;
+  late String _rol;
+  String? _sucursal; // nombre de la sucursal (viene de Firestore)
+  late bool _activo;
+  bool _ocultarPassword = true;
   bool _guardando = false;
 
-  bool get _editando => widget.sucursal != null;
+  final SucursalesService _sucursalesService = SucursalesService();
+  late final Stream<List<Sucursal>> _sucursalesStream =
+      _sucursalesService.streamSucursalesActivas();
+
+  bool get _editando => widget.usuario != null;
 
   @override
   void initState() {
     super.initState();
-    final s = widget.sucursal;
-    _nombreController = TextEditingController(text: s?.nombre ?? '');
-    _encargadoController = TextEditingController(text: s?.encargado ?? '');
-    _direccionController = TextEditingController(text: s?.direccion ?? '');
-    _personalController = TextEditingController(
-      text: s == null ? '' : s.cantidadPersonal.toString(),
-    );
-    _ciudad = (s != null && s.ciudad.isNotEmpty) ? s.ciudad : null;
-    _estado = (s != null && kEstadosSucursal.contains(s.estado))
-        ? s.estado
-        : kEstadosSucursal.first;
+    final u = widget.usuario;
+    _nombreController = TextEditingController(text: u?.nombre ?? '');
+    _correoController = TextEditingController(text: u?.correo ?? '');
+    _passwordController = TextEditingController();
+    _telefonoController = TextEditingController(text: u?.telefono ?? '');
+    _rol = (u != null && kRolesUsuario.contains(u.rol))
+        ? u.rol
+        : kRolesUsuario.last; // Vendedor por defecto
+    _sucursal = (u != null && u.sucursal.isNotEmpty) ? u.sucursal : null;
+    _activo = u?.activo ?? true;
   }
 
   @override
   void dispose() {
     _nombreController.dispose();
-    _encargadoController.dispose();
-    _direccionController.dispose();
-    _personalController.dispose();
+    _correoController.dispose();
+    _passwordController.dispose();
+    _telefonoController.dispose();
     super.dispose();
   }
 
@@ -414,52 +449,55 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
 
   Future<void> _guardar() async {
     final nombre = _nombreController.text.trim();
-    final encargado = _encargadoController.text.trim();
-    final direccion = _direccionController.text.trim();
-    final personal = int.tryParse(_personalController.text.trim());
+    final correo = _correoController.text.trim();
+    final password = _passwordController.text;
+    final telefono = _telefonoController.text.trim();
 
     if (nombre.isEmpty) {
-      _aviso('Escribe el nombre de la sucursal.');
+      _aviso('Escribe el nombre completo.');
       return;
     }
-    if (encargado.isEmpty) {
-      _aviso('Escribe el nombre del encargado.');
+    if (!_editando) {
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(correo)) {
+        _aviso('Escribe un correo válido.');
+        return;
+      }
+      if (password.length < 6) {
+        _aviso('La contraseña debe tener al menos 6 caracteres.');
+        return;
+      }
+    }
+    if (!RegExp(r'^\d{8}$').hasMatch(telefono)) {
+      _aviso('El teléfono debe tener 8 dígitos.');
       return;
     }
-    if (_ciudad == null) {
-      _aviso('Selecciona la ciudad o locación.');
-      return;
-    }
-    if (direccion.isEmpty) {
-      _aviso('Escribe la dirección.');
-      return;
-    }
-    if (personal == null || personal < 0) {
-      _aviso('Ingresa una cantidad de personal válida (0 o mayor).');
+    if (_sucursal == null) {
+      _aviso('Selecciona una sucursal.');
       return;
     }
 
     setState(() => _guardando = true);
     final messenger = ScaffoldMessenger.of(context);
+    final estado = _activo ? 'Activo' : 'Inactivo';
     try {
       if (_editando) {
         await widget.service.actualizar(
-          original: widget.sucursal!,
+          original: widget.usuario!,
           nombre: nombre,
-          encargado: encargado,
-          ciudad: _ciudad!,
-          direccion: direccion,
-          cantidadPersonal: personal,
-          estado: _estado,
+          telefono: telefono,
+          rol: _rol,
+          sucursal: _sucursal!,
+          estado: estado,
         );
       } else {
         await widget.service.crear(
           nombre: nombre,
-          encargado: encargado,
-          ciudad: _ciudad!,
-          direccion: direccion,
-          cantidadPersonal: personal,
-          estado: _estado,
+          correo: correo,
+          password: password,
+          telefono: telefono,
+          rol: _rol,
+          sucursal: _sucursal!,
+          estado: estado,
         );
       }
       if (!mounted) return;
@@ -467,7 +505,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            _editando ? 'Cambios guardados.' : 'Sucursal registrada.',
+            _editando ? 'Cambios guardados.' : 'Usuario registrado.',
           ),
         ),
       );
@@ -486,15 +524,105 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
         ),
       );
 
+  /// Selector de sucursal alimentado por Firestore (`sucursales`, solo las
+  /// activas). Si el usuario que se edita apunta a una sucursal que ya no
+  /// está activa, se conserva en la lista para no perder el dato.
+  Widget _campoSucursal() {
+    return StreamBuilder<List<Sucursal>>(
+      stream: _sucursalesStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Text(
+            'Error al leer sucursales: ${snapshot.error}',
+            style: const TextStyle(fontSize: 12, color: _rojo),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: LinearProgressIndicator(color: _colorAcento),
+          );
+        }
+
+        final nombres = snapshot.data!.map((s) => s.nombre).toList();
+        if (_sucursal != null && !nombres.contains(_sucursal)) {
+          nombres.add(_sucursal!);
+        }
+
+        if (nombres.isEmpty) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF1D2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Text(
+              'No hay sucursales activas. Registra una en el módulo '
+              'Sucursales (menú lateral) para poder continuar.',
+              style: TextStyle(fontSize: 12, color: _textoOscuro),
+            ),
+          );
+        }
+
+        return DropdownButtonFormField<String>(
+          initialValue: _sucursal,
+          isExpanded: true,
+          hint: const Text('Seleccionar'),
+          items: nombres
+              .map(
+                (n) => DropdownMenuItem(
+                  value: n,
+                  child: Text(etiquetaSucursal(n)),
+                ),
+              )
+              .toList(),
+          onChanged: (v) => setState(() => _sucursal = v),
+          decoration: _decoracionCampo(),
+        );
+      },
+    );
+  }
+
+  /// Casilla "Usuario activo", como en el diseño.
+  Widget _casillaActivo() {
+    return InkWell(
+      onTap: _guardando ? null : () => setState(() => _activo = !_activo),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: _fondoInput,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _colorBorde),
+        ),
+        child: Row(
+          children: [
+            Checkbox(
+              value: _activo,
+              activeColor: _colorAcento,
+              onChanged: _guardando
+                  ? null
+                  : (v) => setState(() => _activo = v ?? true),
+            ),
+            const Expanded(
+              child: Text(
+                'Usuario activo',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _textoOscuro,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Si la sucursal editada tiene una ciudad que no está en la lista, se
-    // agrega para que el Dropdown no falle.
-    final ciudades = [
-      ...kCiudadesSucursal,
-      if (_ciudad != null && !kCiudadesSucursal.contains(_ciudad)) _ciudad!,
-    ];
-
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
@@ -506,7 +634,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
                 onPressed: _guardando ? null : () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
                 label: const Text(
-                  'Sucursales',
+                  'Usuarios',
                   style: TextStyle(color: _textoOscuro),
                 ),
                 style: TextButton.styleFrom(
@@ -515,17 +643,19 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                _editando ? 'Editar Sucursal' : 'Nueva sucursal',
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: _textoOscuro,
+              Center(
+                child: Text(
+                  _editando ? 'Editar usuario' : 'Nuevo usuario',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: _textoOscuro,
+                  ),
                 ),
               ),
               const SizedBox(height: 22),
 
-              _etiqueta('Nombre de la sucursal'),
+              _etiqueta('Nombre completo'),
               TextField(
                 controller: _nombreController,
                 textCapitalization: TextCapitalization.words,
@@ -533,79 +663,82 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
               ),
               const SizedBox(height: 16),
 
-              _etiqueta('Nombre del encargado'),
+              _etiqueta('Correo'),
               TextField(
-                controller: _encargadoController,
-                textCapitalization: TextCapitalization.words,
-                decoration: _decoracionCampo(hint: 'Escribir nombre'),
+                controller: _correoController,
+                enabled: !_editando,
+                keyboardType: TextInputType.emailAddress,
+                decoration: _decoracionCampo(hint: 'Escribir correo'),
+                style: TextStyle(
+                  color: _editando ? _textoClaro : Colors.black87,
+                ),
+              ),
+              if (_editando)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'El correo no se puede cambiar: es el acceso de la cuenta.',
+                    style: TextStyle(fontSize: 11, color: _textoClaro),
+                  ),
+                ),
+              const SizedBox(height: 16),
+
+              // La contraseña solo se escribe al crear la cuenta.
+              if (!_editando) ...[
+                _etiqueta('Contraseña inicial'),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: _ocultarPassword,
+                  decoration: _decoracionCampo(
+                    hint: 'Mínimo 6 caracteres',
+                  ).copyWith(
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(
+                        () => _ocultarPassword = !_ocultarPassword,
+                      ),
+                      icon: Icon(
+                        _ocultarPassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                        color: _textoClaro,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              _etiqueta('Teléfono'),
+              TextField(
+                controller: _telefonoController,
+                keyboardType: TextInputType.phone,
+                maxLength: 8,
+                decoration: _decoracionCampo(
+                  hint: 'Escribir número de teléfono',
+                ).copyWith(counterText: ''),
               ),
               const SizedBox(height: 16),
 
-              _etiqueta('Ciudad o locación'),
+              _etiqueta('Rol'),
               DropdownButtonFormField<String>(
-                initialValue: _ciudad,
+                initialValue: _rol,
                 isExpanded: true,
-                hint: const Text('Seleccionar'),
-                items: ciudades
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                items: kRolesUsuario
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r)))
                     .toList(),
-                onChanged: (v) => setState(() => _ciudad = v),
+                onChanged: (v) {
+                  if (v != null) setState(() => _rol = v);
+                },
                 decoration: _decoracionCampo(),
               ),
               const SizedBox(height: 16),
 
-              _etiqueta('Dirección'),
-              TextField(
-                controller: _direccionController,
-                textCapitalization: TextCapitalization.sentences,
-                minLines: 2,
-                maxLines: 3,
-                decoration: _decoracionCampo(hint: 'Escribir dirección'),
-              ),
+              _etiqueta('Sucursal'),
+              _campoSucursal(),
               const SizedBox(height: 16),
 
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _etiqueta('Cantidad de personal'),
-                        TextField(
-                          controller: _personalController,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          decoration: _decoracionCampo(hint: '0'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _etiqueta('Estado de la sucursal'),
-                        DropdownButtonFormField<String>(
-                          initialValue: _estado,
-                          isExpanded: true,
-                          items: kEstadosSucursal
-                              .map((e) =>
-                                  DropdownMenuItem(value: e, child: Text(e)))
-                              .toList(),
-                          onChanged: (v) {
-                            if (v != null) setState(() => _estado = v);
-                          },
-                          decoration: _decoracionCampo(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+              _casillaActivo(),
               const SizedBox(height: 32),
 
               SizedBox(
@@ -662,42 +795,44 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Información de la sucursal (detalle + Editar / Eliminar / Desactivar)
+// 3. Información del usuario (detalle + acciones Editar / Eliminar / Desactivar)
 // ---------------------------------------------------------------------------
 
-class DetalleSucursalScreen extends StatefulWidget {
+class DetalleUsuarioScreen extends StatefulWidget {
   final String id;
-  final SucursalesService service;
+  final UsuariosService service;
 
-  const DetalleSucursalScreen({
+  const DetalleUsuarioScreen({
     super.key,
     required this.id,
     required this.service,
   });
 
   @override
-  State<DetalleSucursalScreen> createState() => _DetalleSucursalScreenState();
+  State<DetalleUsuarioScreen> createState() => _DetalleUsuarioScreenState();
 }
 
-class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
-  late final Stream<Sucursal?> _stream =
-      widget.service.streamSucursal(widget.id);
+class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
   bool _procesando = false;
 
-  Future<void> _editar(Sucursal s) async {
+  Future<void> _editar(Usuario usuario) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SucursalFormScreen(service: widget.service, sucursal: s),
+        builder: (_) => UsuarioFormScreen(
+          service: widget.service,
+          usuario: usuario,
+        ),
       ),
     );
+    // No hace falta setState: el StreamBuilder se refresca solo.
   }
 
-  Future<void> _cambiarEstado(Sucursal s) async {
-    final nuevo = s.activo ? 'Inactivo' : 'Activo';
+  Future<void> _cambiarEstado(Usuario usuario) async {
+    final nuevo = usuario.activo ? 'Inactivo' : 'Activo';
     setState(() => _procesando = true);
     try {
-      await widget.service.cambiarEstado(s, nuevo);
+      await widget.service.cambiarEstado(usuario, nuevo);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -710,14 +845,14 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
     }
   }
 
-  Future<void> _eliminar(Sucursal s) async {
+  Future<void> _eliminar(Usuario usuario) async {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar sucursal'),
+        title: const Text('Eliminar usuario'),
         content: Text(
-          '¿Seguro que quieres eliminar la sucursal "${s.nombre}"? '
-          'Esta acción no se puede deshacer.',
+          '¿Seguro que quieres eliminar a "${usuario.nombre}"? '
+          'Ya no podrá iniciar sesión.',
         ),
         actions: [
           TextButton(
@@ -736,28 +871,66 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await widget.service.eliminar(s);
+      await widget.service.eliminar(usuario);
       if (!mounted) return;
       Navigator.pop(context);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Sucursal eliminada.')),
+        const SnackBar(content: Text('Usuario eliminado.')),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _procesando = false);
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(_mensajeError(e)),
-          duration: const Duration(seconds: 5),
-        ),
+        SnackBar(content: Text('No se pudo eliminar: ${_mensajeError(e)}')),
       );
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: StreamBuilder<Usuario?>(
+          stream: widget.service.streamUsuario(widget.id),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return _cuerpoSimple(
+                _MensajeEstado(
+                  icono: Icons.error_outline,
+                  texto: 'Error al leer el usuario: ${snapshot.error}',
+                ),
+              );
+            }
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return _cuerpoSimple(
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Center(
+                    child: CircularProgressIndicator(color: _colorAcento),
+                  ),
+                ),
+              );
+            }
+            final usuario = snapshot.data;
+            if (usuario == null) {
+              return _cuerpoSimple(
+                const _MensajeEstado(
+                  icono: Icons.search_off,
+                  texto: 'Este usuario ya no existe.',
+                ),
+              );
+            }
+            return _contenido(usuario);
+          },
+        ),
+      ),
+    );
   }
 
   Widget _botonAtras() => TextButton.icon(
         onPressed: () => Navigator.pop(context),
         icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-        label: const Text('Sucursales', style: TextStyle(color: _textoOscuro)),
+        label: const Text('Usuarios', style: TextStyle(color: _textoOscuro)),
         style: TextButton.styleFrom(
           padding: EdgeInsets.zero,
           alignment: Alignment.centerLeft,
@@ -772,71 +945,9 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
         ),
       );
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: StreamBuilder<Sucursal?>(
-          stream: _stream,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return _cuerpoSimple(
-                _MensajeEstado(
-                  icono: Icons.error_outline,
-                  texto: 'Error al leer la sucursal: ${snapshot.error}',
-                ),
-              );
-            }
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return _cuerpoSimple(
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(
-                    child: CircularProgressIndicator(color: _colorAcento),
-                  ),
-                ),
-              );
-            }
-            final s = snapshot.data;
-            if (s == null) {
-              return _cuerpoSimple(
-                const _MensajeEstado(
-                  icono: Icons.search_off,
-                  texto: 'Esta sucursal ya no existe.',
-                ),
-              );
-            }
-            return _contenido(s);
-          },
-        ),
-      ),
-    );
-  }
+  Widget _contenido(Usuario u) {
+    final esMiCuenta = u.id == widget.service.uidActual;
 
-  Widget _tarjeta(List<Widget> filas) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _colorBorde),
-        ),
-        child: Column(children: filas),
-      );
-
-  Widget _titulo(String texto) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Text(
-          texto,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: _textoOscuro,
-          ),
-        ),
-      );
-
-  Widget _contenido(Sucursal s) {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       child: Column(
@@ -844,6 +955,8 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
         children: [
           _botonAtras(),
           const SizedBox(height: 8),
+
+          // Tarjeta resumen
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -852,56 +965,77 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: _colorBorde),
             ),
-            child: Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Sucursal',
-                        style: TextStyle(fontSize: 12, color: _textoClaro),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        s.nombre,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: _textoOscuro,
-                        ),
-                      ),
-                    ],
+                Text(
+                  u.nombre,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _textoOscuro,
                   ),
                 ),
-                _EtiquetaEstado(activo: s.activo),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _EtiquetaEstado(activo: u.activo),
+                    const SizedBox(width: 10),
+                    Text(
+                      u.rol,
+                      style: const TextStyle(fontSize: 13, color: _textoClaro),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
           const SizedBox(height: 22),
 
-          _titulo('Información'),
-          _tarjeta([
-            _FilaInfo('ID', s.codigo),
-            _FilaInfo('Nombre de la sucursal', s.nombre),
-            _FilaInfo('Nombre del encargado', s.encargado),
-            _FilaInfo('Cantidad de personal', s.cantidadPersonal.toString()),
-            _FilaInfo('Estado', s.activo ? 'Activa' : 'Inactiva', ultima: true),
-          ]),
+          const Text(
+            'Información',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: _textoOscuro,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _colorBorde),
+            ),
+            child: Column(
+              children: [
+                _FilaInfo('Id', u.codigo),
+                _FilaInfo('Nombre del usuario', u.nombre),
+                _FilaInfo('Teléfono', u.telefono),
+                _FilaInfo('Rol', u.rol),
+                _FilaInfo('Sucursal', etiquetaSucursal(u.sucursal)),
+                _FilaInfo('Estado', u.activo ? 'Activo' : 'Inactivo'),
+                _FilaInfo('Correo electrónico', u.correo, ultima: true),
+              ],
+            ),
+          ),
           const SizedBox(height: 22),
 
-          _titulo('Dirección'),
-          _tarjeta([
-            _FilaInfo('Ciudad o locación', s.ciudad),
-            _FilaInfo('Dirección', s.direccion, ultima: true),
-          ]),
-          const SizedBox(height: 22),
-
+          const Text(
+            'Acciones',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: _textoOscuro,
+            ),
+          ),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _procesando ? null : () => _editar(s),
+              onPressed: _procesando ? null : () => _editar(u),
               icon: const Icon(Icons.edit_outlined, size: 18),
               label: const Text('Editar'),
               style: ElevatedButton.styleFrom(
@@ -920,17 +1054,27 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
             texto: 'Eliminar',
             icono: Icons.delete_outline,
             color: _rojo,
-            onPressed: _procesando ? null : () => _eliminar(s),
+            onPressed: (_procesando || esMiCuenta) ? null : () => _eliminar(u),
           ),
           const SizedBox(height: 10),
           _BotonContorno(
-            texto: s.activo ? 'Desactivar' : 'Activar',
-            icono: s.activo
+            texto: u.activo ? 'Desactivar' : 'Activar',
+            icono: u.activo
                 ? Icons.pause_circle_outline
                 : Icons.check_circle_outline,
             color: _colorAcento,
-            onPressed: _procesando ? null : () => _cambiarEstado(s),
+            onPressed: (_procesando || (esMiCuenta && u.activo))
+                ? null
+                : () => _cambiarEstado(u),
           ),
+          if (esMiCuenta)
+            const Padding(
+              padding: EdgeInsets.only(top: 10),
+              child: Text(
+                'Es tu propia cuenta: no puedes eliminarla ni desactivarla.',
+                style: TextStyle(fontSize: 11, color: _textoClaro),
+              ),
+            ),
         ],
       ),
     );
@@ -954,7 +1098,6 @@ class _FilaInfo extends StatelessWidget {
             : const Border(bottom: BorderSide(color: _colorBorde)),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Text(

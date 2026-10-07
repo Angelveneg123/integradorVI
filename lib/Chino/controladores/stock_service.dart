@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'evento_auditoria_modelo.dart';
-import 'producto_modelo.dart';
+import '../modelos/evento_auditoria_modelo.dart';
+import '../modelos/producto_modelo.dart';
 import 'auditoria_service.dart';
 
 /// Resultado de un ajuste de inventario.

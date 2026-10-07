@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'AppDrawer.dart';
-import '../backend/evento_auditoria_modelo.dart';
-import '../backend/auditoria_service.dart';
+import '../modelos/evento_auditoria_modelo.dart';
+import '../controladores/auditoria_service.dart';
 
 // Colores reutilizados del diseño de la app (mismos que en main.dart)
 const Color _textoOscuro = Color(0xFF5A3E36);
@@ -19,7 +19,7 @@ const Color _fondoInput = Color(0xFFFCFAF7);
 /// usando `AuditoriaService.registrarEvento(...)`. Por eso este módulo es
 /// difícil de probar solo: la forma real de probarlo es generando eventos
 /// desde los otros módulos, o cargando los datos de prueba de
-/// `lib/Chino/backend/seed_data.dart`.
+/// `lib/Chino/controladores/seed_data.dart`.
 class AuditoriaScreen extends StatefulWidget {
   const AuditoriaScreen({super.key});
 

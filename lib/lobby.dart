@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
-import 'Chino/frontend/Auditoria.dart';
-import 'Chino/frontend/MateriaPrima.dart';
-import 'Henry/frontend/Sucursales.dart';
-import 'Chino/frontend/Reportes.dart';
-import 'Chino/frontend/Stock.dart';
+import 'Chino/vistas/Auditoria.dart';
+import 'Chino/vistas/MateriaPrima.dart';
+import 'Henry/vistas/Sucursales.dart';
+import 'Chino/vistas/Reportes.dart';
+import 'Chino/vistas/Stock.dart';
+import 'Chino/vistas/Usuarios.dart';
+import 'Dennis/vistas/productos.dart';
+import 'Mauricio/vistas/crud_ventas.dart' show VentasScreen;
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({
@@ -27,21 +30,25 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   int selectedIndex = 0;
 
-  // Índices del menú del Lobby que ya están implementados por Chino y
-  // deben navegar de verdad (los demás, por ahora, solo resaltan el ítem).
+
+  static const int _indiceVentas = 1;
+  static const int _indiceProductos = 2;
   static const int _indiceInventario = 3;
   static const int _indiceReportes = 6;
   static const int _indiceAuditoria = 7;
   static const int _indiceIngredientes = 8;
   static const int _indiceSucursales = 5;
-
+  static const int _indiceUsuarios = 4;
   void selectSection(int index) {
     switch (index) {
-      // TODO(compañeros): enlazar aquí Ventas (índice 1) y Productos
-      // (índice 2), igual que los casos de abajo. Ejemplo:
-      //   case 1:
-      //     _abrirModuloChino(const VentasScreen());
-      //     return;
+      case _indiceVentas:
+        _abrirModuloChino(const VentasScreen());
+        return;
+
+      case _indiceProductos:
+        _abrirModuloChino(const ProductosScreen());
+        return;
+     
       case _indiceInventario:
         _abrirModuloChino(const StockScreen());
         return;
@@ -56,6 +63,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
         return;
       case _indiceSucursales:
         _abrirModuloChino(const SucursalesScreen());
+        return;
+      case _indiceUsuarios:
+        _abrirModuloChino(const UsuariosScreen());
         return;
     }
 
@@ -1084,43 +1094,7 @@ class _MobileDrawer extends StatelessWidget {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-              ),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 11,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.08),
-                  ),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.auto_awesome_outlined,
-                      color: Colors.white70,
-                      size: 16,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Gestión • Ventas • Inventario',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+           
             const Padding(
               padding: EdgeInsets.fromLTRB(
                 20,

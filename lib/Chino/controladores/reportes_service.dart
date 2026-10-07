@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
-import '../../Henry/backend/sucursal_modelo.dart';
-import 'venta_modelo.dart';
+import '../../Henry/modelos/sucursal_modelo.dart';
+import '../modelos/venta_modelo.dart';
 import 'auditoria_service.dart';
 import 'productos_service.dart';
 

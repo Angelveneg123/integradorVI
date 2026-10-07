@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'AppDrawer.dart';
-import '../backend/materia_prima_modelo.dart';
-import '../backend/materia_prima_service.dart';
-import '../../Henry/backend/sucursal_modelo.dart';
-import '../../Henry/backend/sucursales_service.dart';
+import '../modelos/materia_prima_modelo.dart';
+import '../controladores/materia_prima_service.dart';
+import '../../Henry/modelos/sucursal_modelo.dart';
+import '../../Henry/controladores/sucursales_service.dart';
 
 // Mismos colores que usan Stock, Reportes y Auditoría.
 const Color _textoOscuro = Color(0xFF5A3E36);

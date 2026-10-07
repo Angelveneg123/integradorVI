@@ -9,9 +9,9 @@ import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'AppDrawer.dart';
-import '../backend/reportes_service.dart';
-import '../../Henry/backend/sucursal_modelo.dart';
-import '../../Henry/backend/sucursales_service.dart';
+import '../controladores/reportes_service.dart';
+import '../../Henry/modelos/sucursal_modelo.dart';
+import '../../Henry/controladores/sucursales_service.dart';
 
 // Colores reutilizados del diseño de la app
 const Color _textoOscuro = Color(0xFF5A3E36);

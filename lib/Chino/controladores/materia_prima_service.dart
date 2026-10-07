@@ -3,8 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import 'auditoria_service.dart';
-import 'evento_auditoria_modelo.dart';
-import 'materia_prima_modelo.dart';
+import '../modelos/evento_auditoria_modelo.dart';
+import '../modelos/materia_prima_modelo.dart';
 
 /// CRUD de la colección `materia_prima` en Firestore.
 ///
