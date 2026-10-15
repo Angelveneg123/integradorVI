@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
+import 'Chino/vistas/AppDrawer.dart' show cerrarSesion, ModuloApp;
+import 'Chino/controladores/permisos_service.dart';
 import 'Chino/vistas/Auditoria.dart';
 import 'Chino/vistas/MateriaPrima.dart';
 import 'Henry/vistas/Sucursales.dart';
+import 'Chino/vistas/Configuracion.dart';
 import 'Chino/vistas/Reportes.dart';
+import 'Chino/vistas/SolicitudesPassword.dart' show CampanaSolicitudes;
 import 'Chino/vistas/Stock.dart';
 import 'Chino/vistas/Usuarios.dart';
 import 'Dennis/vistas/productos.dart';
 import 'Mauricio/vistas/crud_ventas.dart' show VentasScreen;
+import 'Chino/modelos/evento_auditoria_modelo.dart'
+    show EventoAuditoria, TipoEvento, colorParaTipoEvento;
+import 'services/lobby_service.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({
@@ -30,6 +38,50 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   int selectedIndex = 0;
 
+  // Datos en vivo de Firestore
+  final LobbyService _servicio = LobbyService();
+  LobbyDatos _datos = const LobbyDatos();
+
+  bool _servicioActivo = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Permisos.instance.addListener(_alCambiarPermisos);
+    _sincronizarServicio();
+  }
+
+  @override
+  void dispose() {
+    Permisos.instance.removeListener(_alCambiarPermisos);
+    _servicio.detener();
+    super.dispose();
+  }
+
+  // Solo el admin escucha el panel general
+  void _sincronizarServicio() {
+    final debeEscuchar = Permisos.instance.puedeVerLobby;
+    if (debeEscuchar && !_servicioActivo) {
+      _servicioActivo = true;
+      _servicio.iniciar((datos) {
+        if (mounted) setState(() => _datos = datos);
+      });
+    } else if (!debeEscuchar && _servicioActivo) {
+      _servicioActivo = false;
+      _servicio.detener();
+      _datos = const LobbyDatos();
+    }
+  }
+
+  void _alCambiarPermisos() {
+    if (!mounted) return;
+    setState(_sincronizarServicio);
+  }
+
+  // Acceso rápido a nueva venta
+  void _nuevaVenta() {
+    _abrirModuloChino(const VentasScreen(abrirNuevaVenta: true));
+  }
 
   static const int _indiceVentas = 1;
   static const int _indiceProductos = 2;
@@ -39,7 +91,38 @@ class _LobbyScreenState extends State<LobbyScreen> {
   static const int _indiceIngredientes = 8;
   static const int _indiceSucursales = 5;
   static const int _indiceUsuarios = 4;
+  static const int _indiceConfiguracion = 9;
+  // Módulo según el índice del menú
+  ModuloApp? _moduloDeIndice(int index) {
+    switch (index) {
+      case _indiceVentas:
+        return ModuloApp.ventas;
+      case _indiceProductos:
+        return ModuloApp.productos;
+      case _indiceInventario:
+        return ModuloApp.stock;
+      case _indiceReportes:
+        return ModuloApp.reportes;
+      case _indiceAuditoria:
+        return ModuloApp.auditoria;
+      case _indiceIngredientes:
+        return ModuloApp.materiaPrima;
+      case _indiceSucursales:
+        return ModuloApp.sucursales;
+      case _indiceUsuarios:
+        return ModuloApp.usuarios;
+    }
+    return null;
+  }
+
   void selectSection(int index) {
+    // Revisa el rol antes de abrir
+    final modulo = _moduloDeIndice(index);
+    if (modulo != null && !Permisos.instance.puedeVer(modulo)) {
+      avisarSinPermiso(context, 'No tienes permiso para abrir ese módulo.');
+      return;
+    }
+
     switch (index) {
       case _indiceVentas:
         _abrirModuloChino(const VentasScreen());
@@ -67,6 +150,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
       case _indiceUsuarios:
         _abrirModuloChino(const UsuariosScreen());
         return;
+      case _indiceConfiguracion:
+        _abrirModuloChino(const ConfiguracionScreen());
+        return;
     }
 
     setState(() {
@@ -74,9 +160,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     });
   }
 
-  /// Navega a uno de los módulos de Chino (Stock/Ingredientes/Sucursales/Reportes/Auditoria). Al
-  /// volver (botón "Volver al Lobby" o back del sistema) regresa aquí
-  /// mismo y deja "Inicio" resaltado de nuevo en el menú.
+  // Abrir módulo de Chino
   Future<void> _abrirModuloChino(Widget pantalla) async {
     await Navigator.push(
       context,
@@ -91,7 +175,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
+    return _LobbyScope(
+      datos: _datos,
+      abrir: selectSection,
+      abrirPantalla: _abrirModuloChino,
+      nuevaVenta: _nuevaVenta,
+      child: LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
 
@@ -117,6 +206,173 @@ class _LobbyScreenState extends State<LobbyScreen> {
           onSelected: selectSection,
         );
       },
+      ),
+    );
+  }
+}
+
+// Datos y acciones para las tarjetas
+class _LobbyScope extends InheritedWidget {
+  const _LobbyScope({
+    required this.datos,
+    required this.abrir,
+    required this.abrirPantalla,
+    required this.nuevaVenta,
+    required super.child,
+  });
+
+  final LobbyDatos datos;
+
+  // Abrir módulo por índice
+  final ValueChanged<int> abrir;
+
+  // Abrir cualquier pantalla
+  final Future<void> Function(Widget pantalla) abrirPantalla;
+
+  final VoidCallback nuevaVenta;
+
+  static _LobbyScope of(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<_LobbyScope>();
+    assert(scope != null, 'Falta _LobbyScope sobre este widget');
+    return scope!;
+  }
+
+  @override
+  bool updateShouldNotify(_LobbyScope old) => datos != old.datos;
+}
+
+// Widget con tap y cursor
+class _Tocable extends StatelessWidget {
+  const _Tocable({required this.onTap, required this.child});
+
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: child,
+      ),
+    );
+  }
+}
+
+class _AccesoData {
+  const _AccesoData(this.icon, this.title, this.subtitle, this.onTap);
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+}
+
+// Accesos rápidos
+List<_AccesoData> _accesosRapidos(_LobbyScope s) {
+  final permisos = Permisos.instance;
+  final admin = permisos.esAdmin;
+  return [
+    _AccesoData(Icons.shopping_cart_outlined, 'Nueva venta',
+        'Registrar venta', s.nuevaVenta),
+    _AccesoData(
+        Icons.inventory_2_outlined,
+        'Productos',
+        admin ? 'Catálogo y stock' : 'Consultar catálogo',
+        () => s.abrir(2)),
+    _AccesoData(
+        Icons.warehouse_outlined,
+        'Inventario',
+        admin ? 'Ajustar existencias' : 'Stock de tu sucursal',
+        () => s.abrir(3)),
+    if (!admin)
+      _AccesoData(Icons.kitchen_outlined, 'Ingredientes',
+          'Consultar materia prima', () => s.abrir(8)),
+    if (permisos.puedeVer(ModuloApp.usuarios))
+      _AccesoData(Icons.people_outline, 'Usuarios', 'Personal y roles',
+          () => s.abrir(4)),
+    if (permisos.puedeVer(ModuloApp.sucursales))
+      _AccesoData(Icons.storefront_outlined, 'Sucursales',
+          'Puntos de venta', () => s.abrir(5)),
+    _AccesoData(
+        Icons.bar_chart_outlined,
+        'Reportes',
+        admin ? 'Generar informes' : 'Tus ventas del día',
+        () => s.abrir(6)),
+  ];
+}
+
+String _saludo() {
+  final h = DateTime.now().hour;
+  if (h < 12) return 'Buenos días';
+  if (h < 19) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
+// Formato de moneda
+String _fmtMoneda(double v) {
+  final f = NumberFormat(v == v.roundToDouble() ? '#,##0' : '#,##0.00');
+  return 'C\$ ${f.format(v)}';
+}
+
+// Muestra … mientras carga
+String _valor(bool cargando, String texto) => cargando ? '…' : texto;
+
+String _fmtHoraEvento(DateTime f) {
+  final ahora = DateTime.now();
+  final esHoy =
+      f.year == ahora.year && f.month == ahora.month && f.day == ahora.day;
+  return DateFormat(esHoy ? 'hh:mm a' : 'dd/MM hh:mm a').format(f);
+}
+
+IconData _iconoEvento(TipoEvento tipo) {
+  switch (tipo) {
+    case TipoEvento.crear:
+      return Icons.add_circle_outline;
+    case TipoEvento.editar:
+      return Icons.edit_outlined;
+    case TipoEvento.eliminar:
+      return Icons.delete_outline;
+    case TipoEvento.ingresar:
+      return Icons.login;
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner(this.mensaje);
+
+  final String mensaje;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFDECEA),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFF3C0BB)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline,
+              color: LobbyScreen.burgundy, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              mensaje,
+              style: const TextStyle(
+                fontSize: 11,
+                height: 1.4,
+                color: LobbyScreen.textDark,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -361,14 +617,16 @@ class _SideBar extends StatelessWidget {
               active: selectedIndex == 8,
               onTap: () => onSelected(8),
             ),
-            _SideItem(
+            if (Permisos.instance.puedeVer(ModuloApp.usuarios))
+              _SideItem(
               icon: Icons.people_outline,
               label: 'Usuarios',
               compact: compact,
               active: selectedIndex == 4,
               onTap: () => onSelected(4),
             ),
-            _SideItem(
+            if (Permisos.instance.puedeVer(ModuloApp.sucursales))
+              _SideItem(
               icon: Icons.storefront_outlined,
               label: 'Sucursales',
               compact: compact,
@@ -382,7 +640,8 @@ class _SideBar extends StatelessWidget {
               active: selectedIndex == 6,
               onTap: () => onSelected(6),
             ),
-            _SideItem(
+            if (Permisos.instance.puedeVer(ModuloApp.auditoria))
+              _SideItem(
               icon: Icons.fact_check_outlined,
               label: 'Auditoría',
               compact: compact,
@@ -406,14 +665,14 @@ class _SideBar extends StatelessWidget {
               label: 'Configuración',
               compact: compact,
               active: false,
-              onTap: () {},
+              onTap: () => onSelected(9),
             ),
             _SideItem(
               icon: Icons.logout,
               label: 'Cerrar sesión',
               compact: compact,
               active: false,
-              onTap: () {},
+              onTap: () => cerrarSesion(context),
             ),
             const SizedBox(height: 14),
           ],
@@ -565,12 +824,7 @@ class _WebTopBar extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-            ),
-          ),
+          const CampanaSolicitudes(),
           const SizedBox(width: 8),
           CircleAvatar(
             radius: 19,
@@ -608,17 +862,50 @@ class _WebDashboardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scope = _LobbyScope.of(context);
+    final d = scope.datos;
+
+    final tarjetas = <Widget>[
+      _WebSummaryCard(
+        value: _valor(d.cargandoVentas, _fmtMoneda(d.ingresosHoy)),
+        label: 'Ingresos',
+        color: LobbyScreen.burgundy,
+        onTap: () => scope.abrir(1),
+      ),
+      _WebSummaryCard(
+        value: _valor(d.cargandoVentas, '${d.ventasHoy}'),
+        label: 'Ventas',
+        color: LobbyScreen.burgundy,
+        onTap: () => scope.abrir(1),
+      ),
+      _WebSummaryCard(
+        value: _valor(d.cargandoProductos, '${d.stockBajo.length}'),
+        label: 'Stock bajo',
+        color: LobbyScreen.amber,
+        onTap: () => scope.abrir(3),
+      ),
+    ];
+
+    final accesos = _accesosRapidos(scope);
+    // Panel general solo para admin
+    final verPanel = Permisos.instance.puedeVerLobby;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Buenas tardes, $userName',
+          '${_saludo()}, $userName',
           style: const TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w900,
             color: LobbyScreen.textDark,
           ),
         ),
+        if (d.error != null) ...[
+          const SizedBox(height: 14),
+          _ErrorBanner(d.error!),
+        ],
+        if (verPanel) ...[
         const SizedBox(height: 24),
         const _SectionTitle(
           title: 'RESUMEN DE HOY',
@@ -627,58 +914,29 @@ class _WebDashboardBody extends StatelessWidget {
         LayoutBuilder(
           builder: (context, constraints) {
             if (constraints.maxWidth >= 820) {
-              return const Row(
+              return Row(
                 children: [
-                  Expanded(
-                    child: _WebSummaryCard(
-                      value: 'C\$ 1,950',
-                      label: 'Ingresos',
-                      color: LobbyScreen.burgundy,
-                    ),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: _WebSummaryCard(
-                      value: '4',
-                      label: 'Ventas',
-                      color: LobbyScreen.burgundy,
-                    ),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: _WebSummaryCard(
-                      value: '2',
-                      label: 'Stock bajo',
-                      color: LobbyScreen.amber,
-                    ),
-                  ),
+                  Expanded(child: tarjetas[0]),
+                  const SizedBox(width: 16),
+                  Expanded(child: tarjetas[1]),
+                  const SizedBox(width: 16),
+                  Expanded(child: tarjetas[2]),
                 ],
               );
             }
 
-            return const Column(
+            return Column(
               children: [
-                _WebSummaryCard(
-                  value: 'C\$ 1,950',
-                  label: 'Ingresos',
-                  color: LobbyScreen.burgundy,
-                ),
-                SizedBox(height: 12),
-                _WebSummaryCard(
-                  value: '4',
-                  label: 'Ventas',
-                  color: LobbyScreen.burgundy,
-                ),
-                SizedBox(height: 12),
-                _WebSummaryCard(
-                  value: '2',
-                  label: 'Stock bajo',
-                  color: LobbyScreen.amber,
-                ),
+                tarjetas[0],
+                const SizedBox(height: 12),
+                tarjetas[1],
+                const SizedBox(height: 12),
+                tarjetas[2],
               ],
             );
           },
         ),
+        ],
         const SizedBox(height: 30),
         const _SectionTitle(
           title: 'ACCESOS RÁPIDOS',
@@ -691,39 +949,17 @@ class _WebDashboardBody extends StatelessWidget {
           crossAxisSpacing: 14,
           mainAxisSpacing: 14,
           childAspectRatio: desktop ? 2.8 : 2.2,
-          children: const [
-            _WebQuickCard(
-              icon: Icons.shopping_cart_outlined,
-              title: 'Nueva venta',
-              subtitle: 'Registrar venta',
-            ),
-            _WebQuickCard(
-              icon: Icons.inventory_2_outlined,
-              title: 'Productos',
-              subtitle: 'Catálogo y stock',
-            ),
-            _WebQuickCard(
-              icon: Icons.warehouse_outlined,
-              title: 'Inventario',
-              subtitle: 'Ajustar existencias',
-            ),
-            _WebQuickCard(
-              icon: Icons.people_outline,
-              title: 'Usuarios',
-              subtitle: 'Personal y roles',
-            ),
-            _WebQuickCard(
-              icon: Icons.storefront_outlined,
-              title: 'Sucursales',
-              subtitle: 'Puntos de venta',
-            ),
-            _WebQuickCard(
-              icon: Icons.bar_chart_outlined,
-              title: 'Reportes',
-              subtitle: 'Generar informes',
-            ),
+          children: [
+            for (final a in accesos)
+              _WebQuickCard(
+                icon: a.icon,
+                title: a.title,
+                subtitle: a.subtitle,
+                onTap: a.onTap,
+              ),
           ],
         ),
+        if (verPanel) ...[
         const SizedBox(height: 24),
         if (desktop)
           const Row(
@@ -743,6 +979,7 @@ class _WebDashboardBody extends StatelessWidget {
           const SizedBox(height: 14),
           const _RecentActivity(),
         ],
+        ],
         const SizedBox(height: 20),
       ],
     );
@@ -754,14 +991,21 @@ class _WebSummaryCard extends StatelessWidget {
     required this.value,
     required this.label,
     required this.color,
+    this.onTap,
   });
 
   final String value;
   final String label;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final tarjeta = _tarjeta();
+    return onTap == null ? tarjeta : _Tocable(onTap: onTap!, child: tarjeta);
+  }
+
+  Widget _tarjeta() {
     return Container(
       height: 116,
       padding: const EdgeInsets.all(20),
@@ -803,11 +1047,13 @@ class _WebQuickCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -816,7 +1062,7 @@ class _WebQuickCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () {},
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -965,15 +1211,11 @@ class _MobileTopBar extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            onPressed: () {},
-            constraints: const BoxConstraints(
+          const CampanaSolicitudes(
+            iconSize: 21,
+            constraints: BoxConstraints(
               minWidth: 38,
               minHeight: 38,
-            ),
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-              size: 21,
             ),
           ),
           CircleAvatar(
@@ -1010,9 +1252,7 @@ class _MobileDrawer extends StatelessWidget {
     BuildContext context,
     int index,
   ) {
-    // Primero cierra el drawer y luego navega: si `onSelected` abre un
-    // módulo de Chino (push), hacerlo antes de cerrar el drawer cerraría
-    // esa pantalla nueva en vez del drawer.
+    // Cierra el drawer antes de navegar
     Navigator.pop(context);
     onSelected(index);
   }
@@ -1162,7 +1402,8 @@ class _MobileDrawer extends StatelessWidget {
                         select(context, 8);
                       },
                     ),
-                    _DrawerItem(
+                    if (Permisos.instance.puedeVer(ModuloApp.usuarios))
+                      _DrawerItem(
                       icon: Icons.people_outline,
                       title: 'Usuarios',
                       active: selectedIndex == 4,
@@ -1170,7 +1411,8 @@ class _MobileDrawer extends StatelessWidget {
                         select(context, 4);
                       },
                     ),
-                    _DrawerItem(
+                    if (Permisos.instance.puedeVer(ModuloApp.sucursales))
+                      _DrawerItem(
                       icon: Icons.storefront_outlined,
                       title: 'Sucursales',
                       active: selectedIndex == 5,
@@ -1186,7 +1428,8 @@ class _MobileDrawer extends StatelessWidget {
                         select(context, 6);
                       },
                     ),
-                    _DrawerItem(
+                    if (Permisos.instance.puedeVer(ModuloApp.auditoria))
+                      _DrawerItem(
                       icon: Icons.fact_check_outlined,
                       title: 'Auditoría',
                       active: selectedIndex == 7,
@@ -1210,13 +1453,13 @@ class _MobileDrawer extends StatelessWidget {
               icon: Icons.settings_outlined,
               title: 'Configuración',
               active: false,
-              onTap: () {},
+              onTap: () => select(context, 9),
             ),
             _DrawerItem(
               icon: Icons.logout_rounded,
               title: 'Cerrar sesión',
               active: false,
-              onTap: () {},
+              onTap: () => cerrarSesion(context),
             ),
             const SizedBox(height: 12),
           ],
@@ -1313,11 +1556,17 @@ class _MobileDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scope = _LobbyScope.of(context);
+    final d = scope.datos;
+    final accesos = _accesosRapidos(scope);
+    // Panel general solo para admin
+    final verPanel = Permisos.instance.puedeVerLobby;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Buenas tardes, $userName',
+          '${_saludo()}, $userName',
           style: const TextStyle(
             fontSize: 23,
             fontWeight: FontWeight.w900,
@@ -1325,144 +1574,140 @@ class _MobileDashboard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 5),
-        const Text(
-          'Aquí tienes el resumen de Panadería Romero.',
-          style: TextStyle(
+        Text(
+          verPanel
+              ? 'Aquí tienes el resumen de Panadería Romero.'
+              : 'Estos son tus accesos en Panadería Romero.',
+          style: const TextStyle(
             fontSize: 11,
             color: Colors.black54,
           ),
         ),
+        if (d.error != null) ...[
+          const SizedBox(height: 14),
+          _ErrorBanner(d.error!),
+        ],
+        if (verPanel) ...[
         const SizedBox(height: 24),
         const _SectionTitle(
           title: 'RESUMEN DE HOY',
         ),
         const SizedBox(height: 12),
-        const _MobileIncomeCard(),
+        _MobileIncomeCard(
+          value: _valor(d.cargandoVentas, _fmtMoneda(d.ingresosHoy)),
+          onTap: () => scope.abrir(1),
+        ),
         const SizedBox(height: 10),
-        const Row(
+        Row(
           children: [
             Expanded(
               child: _MobileMetricCard(
                 icon: Icons.receipt_long_outlined,
-                value: '4',
+                value: _valor(d.cargandoVentas, '${d.ventasHoy}'),
                 label: 'Ventas',
                 color: LobbyScreen.burgundy,
+                onTap: () => scope.abrir(1),
               ),
             ),
-            SizedBox(width: 10),
+            const SizedBox(width: 10),
             Expanded(
               child: _MobileMetricCard(
                 icon: Icons.warning_amber_rounded,
-                value: '2',
+                value: _valor(d.cargandoProductos, '${d.stockBajo.length}'),
                 label: 'Stock bajo',
                 color: LobbyScreen.amber,
+                onTap: () => scope.abrir(3),
               ),
             ),
           ],
         ),
+        ],
         const SizedBox(height: 26),
         const _SectionTitle(
           title: 'ACCESOS RÁPIDOS',
         ),
         const SizedBox(height: 12),
-        const _MobileQuickCard(
-          icon: Icons.shopping_cart_outlined,
-          title: 'Nueva venta',
-          subtitle: 'Registrar una nueva venta',
-        ),
-        const SizedBox(height: 10),
-        const _MobileQuickCard(
-          icon: Icons.inventory_2_outlined,
-          title: 'Productos',
-          subtitle: 'Catálogo y existencias',
-        ),
-        const SizedBox(height: 10),
-        const _MobileQuickCard(
-          icon: Icons.warehouse_outlined,
-          title: 'Inventario',
-          subtitle: 'Controlar existencias',
-        ),
-        const SizedBox(height: 10),
-        const _MobileQuickCard(
-          icon: Icons.people_outline,
-          title: 'Usuarios',
-          subtitle: 'Personal y roles',
-        ),
-        const SizedBox(height: 10),
-        const _MobileQuickCard(
-          icon: Icons.storefront_outlined,
-          title: 'Sucursales',
-          subtitle: 'Puntos de venta',
-        ),
-        const SizedBox(height: 10),
-        const _MobileQuickCard(
-          icon: Icons.bar_chart_outlined,
-          title: 'Reportes',
-          subtitle: 'Consultar información',
-        ),
+        for (var i = 0; i < accesos.length; i++) ...[
+          if (i > 0) const SizedBox(height: 10),
+          _MobileQuickCard(
+            icon: accesos[i].icon,
+            title: accesos[i].title,
+            subtitle: accesos[i].subtitle,
+            onTap: accesos[i].onTap,
+          ),
+        ],
+        if (verPanel) ...[
         const SizedBox(height: 22),
         const _StockAlert(),
         const SizedBox(height: 12),
         const _RecentActivity(),
+        ],
+
       ],
     );
   }
 }
 
 class _MobileIncomeCard extends StatelessWidget {
-  const _MobileIncomeCard();
+  const _MobileIncomeCard({required this.value, required this.onTap});
+
+  final String value;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(17),
-        border: Border.all(
-          color: const Color(0xFFF0E9E4),
+    return _Tocable(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(
+            color: const Color(0xFFF0E9E4),
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: LobbyScreen.burgundy.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(13),
+        child: Row(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: LobbyScreen.burgundy.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(
+                Icons.payments_outlined,
+                color: LobbyScreen.burgundy,
+              ),
             ),
-            child: const Icon(
-              Icons.payments_outlined,
-              color: LobbyScreen.burgundy,
-            ),
-          ),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'C\$ 1,950',
-                  style: TextStyle(
-                    color: LobbyScreen.burgundy,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      color: LobbyScreen.burgundy,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Ingresos de hoy',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.black54,
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Ingresos de hoy',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.black54,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1474,53 +1719,58 @@ class _MobileMetricCard extends StatelessWidget {
     required this.value,
     required this.label,
     required this.color,
+    required this.onTap,
   });
 
   final IconData icon;
   final String value;
   final String label;
   final Color color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 126,
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFF0E9E4),
+    return _Tocable(
+      onTap: onTap,
+      child: Container(
+        height: 126,
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xFFF0E9E4),
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: color,
-            size: 21,
-          ),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              icon,
               color: color,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
+              size: 21,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 10,
-              color: Colors.black54,
+            const Spacer(),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                color: Colors.black54,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1531,11 +1781,13 @@ class _MobileQuickCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1544,7 +1796,7 @@ class _MobileQuickCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(15),
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
-        onTap: () {},
+        onTap: onTap,
         child: Container(
           width: double.infinity,
           constraints: const BoxConstraints(
@@ -1639,48 +1891,90 @@ class _StockAlert extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF1D2),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: const Row(
-        children: [
-          Icon(
-            Icons.warning_amber_rounded,
-            color: LobbyScreen.amber,
-          ),
-          SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Inventario bajo',
-                  style: TextStyle(
-                    color: LobbyScreen.amber,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  '2 productos necesitan reposición',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: LobbyScreen.textDark,
-                  ),
-                ),
-              ],
+    final scope = _LobbyScope.of(context);
+    final d = scope.datos;
+
+    // Sin alertas mientras cargan los productos
+    if (d.cargandoProductos) return const SizedBox.shrink();
+
+    final bajos = d.stockBajo;
+    final enOrden = bajos.isEmpty;
+    final color = enOrden ? const Color(0xFF2E7D32) : LobbyScreen.amber;
+
+    final titulo = enOrden ? 'Inventario en orden' : 'Inventario bajo';
+    final detalle = enOrden
+        ? 'Ningún producto está en su stock mínimo'
+        : (bajos.length == 1
+            ? '1 producto necesita reposición'
+            : '${bajos.length} productos necesitan reposición');
+
+    // Los 3 más críticos
+    final nombres = bajos
+        .take(3)
+        .map((p) => '${p.nombre} (${p.stock}/${p.stockMinimo})')
+        .join(', ');
+    final resto = bajos.length > 3 ? ' y ${bajos.length - 3} más' : '';
+
+    return _Tocable(
+      onTap: () => scope.abrir(3),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(17),
+        decoration: BoxDecoration(
+          color: enOrden ? const Color(0xFFE8F5E9) : const Color(0xFFFFF1D2),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              enOrden
+                  ? Icons.check_circle_outline
+                  : Icons.warning_amber_rounded,
+              color: color,
             ),
-          ),
-          Icon(
-            Icons.chevron_right,
-            color: LobbyScreen.amber,
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    detalle,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: LobbyScreen.textDark,
+                    ),
+                  ),
+                  if (!enOrden) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '$nombres$resto',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        height: 1.4,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              color: color,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1691,6 +1985,9 @@ class _RecentActivity extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scope = _LobbyScope.of(context);
+    final d = scope.datos;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(17),
@@ -1701,49 +1998,129 @@ class _RecentActivity extends StatelessWidget {
           color: const Color(0xFFF0E9E4),
         ),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Actividad reciente',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          SizedBox(height: 12),
           Row(
             children: [
-              CircleAvatar(
-                backgroundColor: Color(0xFFF7ECEC),
-                child: Icon(
-                  Icons.receipt_long_outlined,
-                  color: LobbyScreen.burgundy,
-                  size: 19,
-                ),
-              ),
-              SizedBox(width: 10),
-              Expanded(
+              const Expanded(
                 child: Text(
-                  'Venta #V635 • C\$ 800.00\nJuan Pérez • 01:10 pm',
+                  'Actividad reciente',
                   style: TextStyle(
-                    fontSize: 10,
-                    height: 1.5,
-                    color: LobbyScreen.textDark,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              Text(
-                'Ver →',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: LobbyScreen.burgundy,
-                  fontWeight: FontWeight.w700,
+              _Tocable(
+                onTap: () => scope.abrir(7),
+                child: const Text(
+                  'Ver todo →',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: LobbyScreen.burgundy,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          if (d.cargandoActividad)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(8),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else if (d.actividad.isEmpty)
+            const Text(
+              'Todavía no hay actividad registrada.',
+              style: TextStyle(fontSize: 10, color: Colors.black54),
+            )
+          else
+            for (final e in d.actividad)
+              _FilaActividad(
+                evento: e,
+                onTap: () => scope.abrirPantalla(
+                  DetalleEventoScreen(evento: e),
+                ),
+              ),
         ],
+      ),
+    );
+  }
+}
+
+class _FilaActividad extends StatelessWidget {
+  const _FilaActividad({required this.evento, required this.onTap});
+
+  final EventoAuditoria evento;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = colorParaTipoEvento(evento.tipo);
+    final partes = <String>[
+      if (evento.autor.trim().isNotEmpty) evento.autor.trim(),
+      if (evento.modulo.trim().isNotEmpty) evento.modulo.trim(),
+      _fmtHoraEvento(evento.fecha),
+    ];
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: color.withOpacity(0.14),
+              child: Icon(
+                _iconoEvento(evento.tipo),
+                color: color,
+                size: 19,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    evento.descripcion.trim().isEmpty
+                        ? evento.titulo
+                        : evento.descripcion,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: LobbyScreen.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    partes.join(' • '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, size: 16, color: Colors.black38),
+          ],
+        ),
       ),
     );
   }

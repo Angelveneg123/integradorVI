@@ -3,17 +3,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../modelos/evento_auditoria_modelo.dart';
 import '../modelos/producto_modelo.dart';
 import 'auditoria_service.dart';
+import 'permisos_service.dart';
 
-/// Resultado de un ajuste de inventario.
+// Resultado del ajuste
 class ResultadoAjuste {
   final int stockAnterior;
   final int stockNuevo;
   const ResultadoAjuste(this.stockAnterior, this.stockNuevo);
 }
 
-/// Escribe cambios de stock sobre la colección `productos` (la que llena el
-/// módulo de Productos) y deja un registro en `auditoria` por cada ajuste,
-/// para que el módulo de Auditoria lo pueda ver.
+// Servicio de stock
 class StockService {
   StockService({
     FirebaseFirestore? firestore,
@@ -27,10 +26,7 @@ class StockService {
   CollectionReference<Map<String, dynamic>> get _productos =>
       _db.collection(kColeccionProductos);
 
-  /// Suma o resta unidades del stock de [producto] (según [tipoAjuste]:
-  /// 'Entrada' o 'Salida'), de forma atómica con una transacción, guarda un
-  /// registro del movimiento en `productos/{id}/movimientos`, y crea un
-  /// evento en la bitácora de auditoría.
+  // Ajustar inventario (entrada o salida)
   Future<ResultadoAjuste> ajustarInventario({
     required Producto producto,
     required String tipoAjuste, // 'Entrada' | 'Salida'
@@ -38,6 +34,10 @@ class StockService {
     String motivo = '',
     String autor = 'Usuario del sistema',
   }) async {
+    Permisos.instance.exigir(
+      Permisos.instance.puedeAjustarStock(producto.sucursal),
+      'ajustar el stock de otra sucursal',
+    );
     final docRef = _productos.doc(producto.id);
 
     final resultado = await _db.runTransaction<ResultadoAjuste>((tx) async {
@@ -45,12 +45,13 @@ class StockService {
       if (!snap.exists) {
         throw StateError('El producto ${producto.id} ya no existe.');
       }
-      final stockActual = ((snap.data()?['stock'] ?? 0) as num).toInt();
+      final stockActual = existenciaDeDocumento(snap.data() ?? <String, dynamic>{});
       final delta = tipoAjuste == 'Entrada' ? cantidad : -cantidad;
       final stockNuevo = (stockActual + delta).clamp(0, 1 << 30);
 
       tx.update(docRef, {
         'stock': stockNuevo,
+        'cantidad': stockNuevo, // la lee el módulo de Productos
         'actualizadoEn': FieldValue.serverTimestamp(),
       });
 
@@ -68,10 +69,7 @@ class StockService {
       return ResultadoAjuste(stockActual, stockNuevo);
     });
 
-    // El registro de auditoría se hace fuera de la transacción porque
-    // AuditoriaService usa `FieldValue.serverTimestamp()` a través de
-    // `.add(...)`, que no se puede mezclar con `tx.set` sobre la misma
-    // escritura sin duplicar lógica; una escritura extra aquí es aceptable.
+    // Auditoría fuera de la transacción
     await _auditoria.registrarEvento(
       titulo: 'Stock',
       tipo: TipoEvento.editar,

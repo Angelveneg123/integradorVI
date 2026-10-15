@@ -5,12 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'auditoria_service.dart';
 import '../modelos/evento_auditoria_modelo.dart';
 import '../modelos/materia_prima_modelo.dart';
+import 'permisos_service.dart';
 
-/// CRUD de la colección `materia_prima` en Firestore.
-///
-/// Cada operación (crear / editar / eliminar / activar-desactivar) deja un
-/// registro en la bitácora `auditoria`, igual que hace [StockService], para
-/// que el módulo de Auditoría lo muestre.
 class MateriaPrimaService {
   MateriaPrimaService({
     FirebaseFirestore? firestore,
@@ -18,15 +14,18 @@ class MateriaPrimaService {
   })  : _db = firestore ?? FirebaseFirestore.instance,
         _auditoria = auditoriaService ?? AuditoriaService(firestore: firestore);
 
+// Conexión a Firestore
   final FirebaseFirestore _db;
+
   final AuditoriaService _auditoria;
 
+// Módulo para la auditoría
   static const String _modulo = 'Materia Prima';
 
   CollectionReference<Map<String, dynamic>> get _coleccion =>
       _db.collection(kColeccionMateriaPrima);
 
-  /// Nombre del usuario autenticado, para la bitácora de auditoría.
+  // Autor para la auditoría
   String get _autor {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return 'Usuario del sistema';
@@ -37,27 +36,25 @@ class MateriaPrimaService {
     return 'Usuario del sistema';
   }
 
-  // ---------------------------------------------------------------- Lectura
+ 
 
-  /// Stream en tiempo real de todas las materias primas, ordenadas por nombre.
+  // Materias primas en vivo
   Stream<List<MateriaPrima>> streamMateriasPrimas() {
     return _coleccion.orderBy('nombre').snapshots().map(
           (snap) => snap.docs.map(MateriaPrima.fromDoc).toList(),
         );
   }
 
-  /// Stream en tiempo real de una sola materia prima (pantalla de detalle).
-  /// Emite `null` si el documento fue eliminado.
+  // Una materia prima en vivo
   Stream<MateriaPrima?> streamMateriaPrima(String id) {
     return _coleccion.doc(id).snapshots().map(
           (doc) => doc.exists ? MateriaPrima.fromDoc(doc) : null,
         );
   }
 
-  // ---------------------------------------------------------------- Escritura
 
-  /// Crea una materia prima con código autogenerado (M001, M002, ...).
-  /// Devuelve el código asignado.
+
+  // Crear materia prima
   Future<String> crear({
     required String nombre,
     required double cantidad,
@@ -65,10 +62,12 @@ class MateriaPrimaService {
     required String sucursal,
     required String estado,
   }) async {
+    Permisos.instance.exigir(Permisos.instance.puedeEditarIngredientes, 'crear ingredientes');
     nombre = nombre.trim();
     await _validarDuplicado(nombre: nombre, sucursal: sucursal);
 
     final codigo = await _siguienteCodigo();
+    // Referencia al documento
     final ref = _coleccion.doc(codigo);
     final nueva = MateriaPrima(
       id: codigo,
@@ -96,7 +95,7 @@ class MateriaPrimaService {
     return codigo;
   }
 
-  /// Guarda los cambios de una materia prima existente.
+  // Actualizar materia prima
   Future<void> actualizar({
     required MateriaPrima original,
     required String nombre,
@@ -105,6 +104,7 @@ class MateriaPrimaService {
     required String sucursal,
     required String estado,
   }) async {
+    Permisos.instance.exigir(Permisos.instance.puedeEditarIngredientes, 'editar ingredientes');
     nombre = nombre.trim();
     await _validarDuplicado(
       nombre: nombre,
@@ -133,8 +133,9 @@ class MateriaPrimaService {
     );
   }
 
-  /// Activa o desactiva una materia prima.
+  // Activar o desactivar
   Future<void> cambiarEstado(MateriaPrima materia, String nuevoEstado) async {
+    Permisos.instance.exigir(Permisos.instance.puedeEditarIngredientes, 'cambiar el estado de ingredientes');
     await _coleccion.doc(materia.id).update({
       'estado': nuevoEstado,
       'actualizadoEn': FieldValue.serverTimestamp(),
@@ -149,8 +150,9 @@ class MateriaPrimaService {
     );
   }
 
-  /// Elimina definitivamente una materia prima.
+  // Eliminar materia prima
   Future<void> eliminar(MateriaPrima materia) async {
+    Permisos.instance.exigir(Permisos.instance.puedeEditarIngredientes, 'eliminar ingredientes');
     await _coleccion.doc(materia.id).delete();
 
     await _registrarAuditoria(
@@ -160,9 +162,8 @@ class MateriaPrimaService {
     );
   }
 
-  // ---------------------------------------------------------------- Helpers
 
-  /// Calcula el siguiente código libre: M001, M002, ...
+  // Siguiente código libre
   Future<String> _siguienteCodigo() async {
     final snap = await _coleccion.get();
     var maximo = 0;
@@ -173,7 +174,7 @@ class MateriaPrimaService {
     return 'M${(maximo + 1).toString().padLeft(3, '0')}';
   }
 
-  /// No permite dos materias primas con el mismo nombre en la misma sucursal.
+  // No permite nombres repetidos en la sucursal
   Future<void> _validarDuplicado({
     required String nombre,
     required String sucursal,
@@ -191,7 +192,7 @@ class MateriaPrimaService {
     }
   }
 
-  /// La auditoría nunca debe impedir que la operación principal termine.
+  // Registrar auditoría sin bloquear
   Future<void> _registrarAuditoria({
     required TipoEvento tipo,
     required String descripcion,

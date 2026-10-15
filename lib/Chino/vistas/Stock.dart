@@ -4,19 +4,16 @@ import 'AppDrawer.dart';
 import '../modelos/producto_modelo.dart';
 import '../controladores/productos_service.dart';
 import '../controladores/stock_service.dart';
+import '../controladores/permisos_service.dart';
 
-// Colores reutilizados del diseño de la app (mismos que en main.dart)
+// Colores
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
 const Color _colorBorde = Color(0xFFE8DFD8);
 const Color _fondoInput = Color(0xFFFCFAF7);
 
-/// Pantalla principal: "Gestión de inventario".
-///
-/// Los productos vienen en tiempo real de Firestore (colección `productos`,
-/// que llena el módulo de Productos). Este módulo solo lee esa colección y
-/// escribe cambios de `stock` a través de [StockService].
+// Pantalla de inventario
 class StockScreen extends StatefulWidget {
   const StockScreen({super.key});
 
@@ -44,6 +41,14 @@ class _StockScreenState extends State<StockScreen> {
   }
 
   Future<void> _abrirDetalle(Producto producto) async {
+    // El vendedor solo ajusta su sucursal
+    if (!Permisos.instance.puedeAjustarStock(producto.sucursal)) {
+      avisarSinPermiso(
+        context,
+        'Solo puedes ajustar el stock de tu sucursal.',
+      );
+      return;
+    }
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -53,11 +58,16 @@ class _StockScreenState extends State<StockScreen> {
         ),
       ),
     );
-    // No hace falta setState: el StreamBuilder de abajo se refresca solo
-    // en cuanto Firestore confirma el cambio de stock.
   }
 
   Future<void> _cambioRapido(Producto producto, int delta) async {
+    if (!Permisos.instance.puedeAjustarStock(producto.sucursal)) {
+      avisarSinPermiso(
+        context,
+        'Solo puedes ajustar el stock de tu sucursal.',
+      );
+      return;
+    }
     if (producto.stock + delta < 0) return;
     try {
       await _stockService.ajustarInventario(
@@ -132,7 +142,7 @@ class _StockScreenState extends State<StockScreen> {
               ),
               const SizedBox(height: 14),
 
-              // Filtros tipo pill: Todos / Activos / Inactivos
+              // Filtros tipo pill
               Row(
                 children: ['Todos', 'Activos', 'Inactivos'].map((filtro) {
                   final seleccionado = _filtroSeleccionado == filtro;
@@ -160,7 +170,7 @@ class _StockScreenState extends State<StockScreen> {
               ),
               const SizedBox(height: 18),
 
-              // Lista de productos, en vivo desde Firestore.
+              // Lista en vivo
               StreamBuilder<List<Producto>>(
                 stream: _productosService.streamProductos(),
                 builder: (context, snapshot) {
@@ -193,6 +203,8 @@ class _StockScreenState extends State<StockScreen> {
                             producto: producto,
                             onTap: () => _abrirDetalle(producto),
                             onCambiarStock: (delta) => _cambioRapido(producto, delta),
+                            puedeAjustar: Permisos.instance
+                                .puedeAjustarStock(producto.sucursal),
                           ),
                         )
                         .toList(),
@@ -238,10 +250,14 @@ class _TarjetaProducto extends StatelessWidget {
   final VoidCallback onTap;
   final ValueChanged<int> onCambiarStock;
 
+  // Si es false, se ocultan + y -
+  final bool puedeAjustar;
+
   const _TarjetaProducto({
     required this.producto,
     required this.onTap,
     required this.onCambiarStock,
+    this.puedeAjustar = true,
   });
 
   @override
@@ -291,7 +307,8 @@ class _TarjetaProducto extends StatelessWidget {
               ),
               Row(
                 children: [
-                  _BotonRedondo(icono: Icons.remove, onTap: () => onCambiarStock(-1)),
+                  if (puedeAjustar)
+                    _BotonRedondo(icono: Icons.remove, onTap: () => onCambiarStock(-1)),
                   SizedBox(
                     width: 34,
                     child: Text(
@@ -300,7 +317,8 @@ class _TarjetaProducto extends StatelessWidget {
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _textoOscuro),
                     ),
                   ),
-                  _BotonRedondo(icono: Icons.add, onTap: () => onCambiarStock(1), relleno: true),
+                  if (puedeAjustar)
+                    _BotonRedondo(icono: Icons.add, onTap: () => onCambiarStock(1), relleno: true),
                 ],
               ),
             ],
@@ -364,9 +382,7 @@ class _BotonRedondo extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Pantalla de detalle: "Ajustar inventario" (la que se abre al tocar un producto)
-// ---------------------------------------------------------------------------
+// Ajustar inventario
 
 class AjustarInventarioScreen extends StatefulWidget {
   final Producto producto;

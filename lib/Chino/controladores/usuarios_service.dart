@@ -6,16 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'auditoria_service.dart';
 import '../modelos/evento_auditoria_modelo.dart';
 import '../modelos/usuario_modelo.dart';
+import 'permisos_service.dart';
 
-/// CRUD de usuarios: el perfil va a Firestore (`usuarios`) y la cuenta de
-/// acceso a Firebase Authentication.
-///
-/// Limitaciones (plan gratuito, sin servidor/Admin SDK):
-/// * Crear la cuenta se hace con una segunda instancia de Firebase, para que
-///   la sesión del administrador no se cierre.
-/// * Desde la app no se puede borrar ni editar el correo de una cuenta de
-///   Authentication. Por eso "Eliminar" es un borrado lógico (estado
-///   'Eliminado'): desaparece de la lista y el login lo bloquea.
+// CRUD de usuarios
 class UsuariosService {
   UsuariosService({
     FirebaseFirestore? firestore,
@@ -44,9 +37,9 @@ class UsuariosService {
     return 'Usuario del sistema';
   }
 
-  // ---------------------------------------------------------------- Lectura
+ 
 
-  /// Usuarios no eliminados, ordenados por nombre.
+  // Usuarios en vivo (sin eliminados)
   Stream<List<Usuario>> streamUsuarios() {
     return _coleccion.snapshots().map((snap) {
       final lista = snap.docs
@@ -60,7 +53,7 @@ class UsuariosService {
     });
   }
 
-  /// Un usuario en tiempo real. Emite `null` si no existe o fue eliminado.
+  // Un usuario en vivo
   Stream<Usuario?> streamUsuario(String id) {
     return _coleccion.doc(id).snapshots().map((doc) {
       if (!doc.exists) return null;
@@ -69,9 +62,9 @@ class UsuariosService {
     });
   }
 
-  // ---------------------------------------------------------------- Escritura
+  
 
-  /// Crea la cuenta en Authentication y su perfil en Firestore.
+  // Crear usuario
   Future<String> crear({
     required String nombre,
     required String correo,
@@ -81,9 +74,10 @@ class UsuariosService {
     required String sucursal,
     required String estado,
   }) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'crear usuarios');
     nombre = nombre.trim();
     correo = correo.trim().toLowerCase();
-    await _validarCorreoLibre(correo);
+    // Authentication valida si el correo ya existe
 
     final uid = await _crearCuentaAuth(
       nombre: nombre,
@@ -123,8 +117,7 @@ class UsuariosService {
     return uid;
   }
 
-  /// Guarda los cambios del perfil. El correo no se puede cambiar desde la
-  /// app (está ligado a la cuenta de Authentication).
+  // Actualizar usuario
   Future<void> actualizar({
     required Usuario original,
     required String nombre,
@@ -133,6 +126,7 @@ class UsuariosService {
     required String sucursal,
     required String estado,
   }) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'editar usuarios');
     if (original.id == uidActual && estado != 'Activo') {
       throw StateError('No puedes desactivar tu propia cuenta.');
     }
@@ -157,6 +151,7 @@ class UsuariosService {
   }
 
   Future<void> cambiarEstado(Usuario usuario, String nuevoEstado) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'cambiar el estado de usuarios');
     if (usuario.id == uidActual && nuevoEstado != 'Activo') {
       throw StateError('No puedes desactivar tu propia cuenta.');
     }
@@ -175,8 +170,35 @@ class UsuariosService {
     );
   }
 
-  /// Borrado lógico (ver nota de la clase).
+  // Enviar enlace para cambiar la contraseña
+  Future<void> enviarRestablecimientoPassword(Usuario usuario) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'restablecer contraseñas');
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: usuario.correo);
+    } on FirebaseAuthException catch (e) {
+      throw StateError(switch (e.code) {
+        'invalid-email' => 'El correo del usuario no es válido.',
+        'user-not-found' =>
+          'Ese correo no tiene cuenta en Authentication.',
+        'too-many-requests' =>
+          'Demasiados intentos. Espera unos minutos e inténtalo otra vez.',
+        'network-request-failed' => 'No hay conexión a Internet.',
+        _ => 'No se pudo enviar el correo (${e.code}).',
+      });
+    }
+
+    await _registrarAuditoria(
+      tipo: TipoEvento.editar,
+      descripcion:
+          'Se envió correo para restablecer la contraseña de "${usuario.nombre}"',
+      usuario: usuario,
+      detalle: 'Enviado a ${usuario.correo}',
+    );
+  }
+
+  // Eliminar usuario (borrado lógico)
   Future<void> eliminar(Usuario usuario) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'eliminar usuarios');
     if (usuario.id == uidActual) {
       throw StateError('No puedes eliminar tu propia cuenta.');
     }
@@ -193,10 +215,7 @@ class UsuariosService {
     );
   }
 
-  // ---------------------------------------------------------------- Helpers
-
-  /// Crea la cuenta en una segunda instancia de Firebase para no cerrar la
-  /// sesión del administrador. Devuelve el uid de la cuenta nueva.
+  // Crear cuenta sin cerrar la sesión del admin
   Future<String> _crearCuentaAuth({
     required String nombre,
     required String correo,
@@ -227,8 +246,8 @@ class UsuariosService {
     } on FirebaseAuthException catch (e) {
       throw StateError(switch (e.code) {
         'email-already-in-use' =>
-          'Ese correo ya tiene una cuenta. Si el usuario fue eliminado, '
-              'usa otro correo.',
+          'Ese correo ya tiene una cuenta en Authentication. Si es de un '
+              'usuario eliminado, bórrala en la consola de Firebase o usa otro correo.',
         'invalid-email' => 'El correo electrónico no es válido.',
         'weak-password' => 'La contraseña es muy débil (mínimo 6 caracteres).',
         'network-request-failed' => 'No hay conexión a Internet.',
@@ -250,18 +269,7 @@ class UsuariosService {
     return 'U${(maximo + 1).toString().padLeft(3, '0')}';
   }
 
-  Future<void> _validarCorreoLibre(String correo) async {
-    final snap = await _coleccion.get();
-    final repetido = snap.docs.any(
-      (d) =>
-          ((d.data()['correo'] ?? '') as String).trim().toLowerCase() == correo,
-    );
-    if (repetido) {
-      throw StateError('Ya existe un usuario con el correo "$correo".');
-    }
-  }
-
-  /// La auditoría nunca debe impedir que la operación principal termine.
+  // Registrar auditoría sin bloquear
   Future<void> _registrarAuditoria({
     required TipoEvento tipo,
     required String descripcion,

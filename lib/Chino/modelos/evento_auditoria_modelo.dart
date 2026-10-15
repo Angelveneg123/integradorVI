@@ -2,12 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-/// Nombre de la colección de Firestore para la bitácora de auditoría.
-/// Todos los módulos (Ventas, Stock, Usuarios, Accesos, Productos...)
-/// escriben aquí cuando hacen crear/editar/eliminar/ingresar.
+// Colección de auditoría
 const String kColeccionAuditoria = 'auditoria';
 
-/// Tipos de evento que puede registrar la bitácora de auditoría.
+// Tipos de evento
 enum TipoEvento { crear, editar, eliminar, ingresar }
 
 TipoEvento tipoEventoDesdeTexto(String texto) {
@@ -17,8 +15,7 @@ TipoEvento tipoEventoDesdeTexto(String texto) {
   );
 }
 
-/// Color asociado a cada tipo de evento (se deriva en la UI, no se guarda
-/// en Firestore, para no acoplar el color exacto a los datos).
+// Color según el tipo
 Color colorParaTipoEvento(TipoEvento tipo) {
   switch (tipo) {
     case TipoEvento.crear:
@@ -31,7 +28,7 @@ Color colorParaTipoEvento(TipoEvento tipo) {
   }
 }
 
-/// Etiqueta legible para cada tipo de evento.
+// Etiqueta según el tipo
 String etiquetaParaTipoEvento(TipoEvento tipo) {
   switch (tipo) {
     case TipoEvento.crear:
@@ -45,12 +42,11 @@ String etiquetaParaTipoEvento(TipoEvento tipo) {
   }
 }
 
-/// Un producto/artículo afectado por el evento, con su cantidad.
-/// Ej: al eliminar una venta, aquí van los productos que la componían.
+// Producto afectado por el evento
 class ProductoMovimiento {
   final String nombre;
   final int cantidad;
-  final String? detalle; // texto libre opcional, ej. "Stock: 45 → 55"
+  final String? detalle; // texto libre opcional
 
   const ProductoMovimiento({
     required this.nombre,
@@ -73,7 +69,7 @@ class ProductoMovimiento {
       };
 }
 
-/// Un dato adicional de "clave: valor" que varía según el tipo de evento.
+// Dato extra (clave y valor)
 class CampoInfo {
   final String etiqueta;
   final String valor;
@@ -90,22 +86,7 @@ class CampoInfo {
   Map<String, dynamic> toMap() => {'etiqueta': etiqueta, 'valor': valor};
 }
 
-/// Modelo de un evento del registro de auditoría.
-///
-/// Documento en `auditoria/{id}`:
-/// ```
-/// {
-///   "titulo": "Stock",
-///   "tipo": "editar",              // crear | editar | eliminar | ingresar
-///   "descripcion": "Ajuste de inventario (entrada de stock)",
-///   "autor": "Juan Pérez",
-///   "fecha": <Timestamp>,
-///   "modulo": "Stock",
-///   "idReferencia": "S-00210",
-///   "productos": [ { "nombre": "Croissant", "cantidad": 10, "detalle": "..." } ],
-///   "datosAdicionales": [ { "etiqueta": "Motivo", "valor": "Producción" } ]
-/// }
-/// ```
+// Evento de auditoría
 class EventoAuditoria {
   final String id;
   final String titulo;
@@ -114,7 +95,7 @@ class EventoAuditoria {
   final String autor;
   final DateTime fecha;
   final String modulo; // Ventas, Accesos, Stock, Usuarios, Productos...
-  final String idReferencia; // folio/ID interno del evento, para rastreo
+  final String idReferencia; // folio del evento
   final List<ProductoMovimiento> productos;
   final List<CampoInfo> datosAdicionales;
 

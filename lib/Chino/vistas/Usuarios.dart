@@ -5,8 +5,9 @@ import '../modelos/usuario_modelo.dart';
 import '../controladores/usuarios_service.dart';
 import '../../Henry/modelos/sucursal_modelo.dart';
 import '../../Henry/controladores/sucursales_service.dart';
+import '../controladores/permisos_service.dart';
 
-// Mismos colores y estilos que usan Materia Prima, Sucursales y Productos.
+// Colores
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
@@ -14,7 +15,7 @@ const Color _colorBorde = Color(0xFFE8DFD8);
 const Color _fondoInput = Color(0xFFFCFAF7);
 const Color _rojo = Color(0xFFB3261E);
 
-/// Convierte una excepción en un texto corto para mostrar en un SnackBar.
+// Error a texto corto
 String _mensajeError(Object e) => e
     .toString()
     .replaceFirst('Bad state: ', '')
@@ -42,9 +43,7 @@ InputDecoration _decoracionCampo({String? hint}) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 1. Lista de Usuarios (pantalla principal del módulo, con menú lateral)
-// ---------------------------------------------------------------------------
+// Lista de usuarios
 
 class UsuariosScreen extends StatefulWidget {
   const UsuariosScreen({super.key});
@@ -112,6 +111,10 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Solo admin
+    if (!Permisos.instance.puedeVer(ModuloApp.usuarios)) {
+      return const AccesoRestringido(modulo: 'Usuarios');
+    }
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AppDrawer(moduloActual: ModuloApp.usuarios),
@@ -218,7 +221,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Lista en vivo desde Firestore
+                    // Lista en vivo
                     StreamBuilder<List<Usuario>>(
                       stream: _service.streamUsuarios(),
                       builder: (context, snapshot) {
@@ -306,7 +309,7 @@ class _EtiquetaEstado extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Activo en verde e Inactivo en naranja, como en el diseño de Figma.
+    // Verde activo, naranja inactivo
     final color = activo ? const Color(0xFF2E9E4F) : const Color(0xFFD9692B);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
@@ -387,12 +390,10 @@ class _TarjetaUsuario extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2 y 4. Nuevo usuario / Editar usuario (mismo formulario)
-// ---------------------------------------------------------------------------
+// Formulario de usuario (nuevo y editar)
 
 class UsuarioFormScreen extends StatefulWidget {
-  /// Si es `null` el formulario crea un usuario nuevo; si trae uno, lo edita.
+  // null = crear usuario nuevo
   final Usuario? usuario;
   final UsuariosService service;
 
@@ -408,7 +409,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
   late final TextEditingController _passwordController;
   late final TextEditingController _telefonoController;
   late String _rol;
-  String? _sucursal; // nombre de la sucursal (viene de Firestore)
+  String? _sucursal; // nombre de la sucursal
   late bool _activo;
   bool _ocultarPassword = true;
   bool _guardando = false;
@@ -524,9 +525,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
         ),
       );
 
-  /// Selector de sucursal alimentado por Firestore (`sucursales`, solo las
-  /// activas). Si el usuario que se edita apunta a una sucursal que ya no
-  /// está activa, se conserva en la lista para no perder el dato.
+  // Selector de sucursal
   Widget _campoSucursal() {
     return StreamBuilder<List<Sucursal>>(
       stream: _sucursalesStream,
@@ -584,7 +583,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
     );
   }
 
-  /// Casilla "Usuario activo", como en el diseño.
+  // Casilla de usuario activo
   Widget _casillaActivo() {
     return InkWell(
       onTap: _guardando ? null : () => setState(() => _activo = !_activo),
@@ -677,13 +676,13 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
                   child: Text(
-                    'El correo no se puede cambiar: es el acceso de la cuenta.',
+                    'El correo no se puede cambiar: queda como registro del acceso de la cuenta.',
                     style: TextStyle(fontSize: 11, color: _textoClaro),
                   ),
                 ),
               const SizedBox(height: 16),
 
-              // La contraseña solo se escribe al crear la cuenta.
+              // La contraseña solo se escribe al crear
               if (!_editando) ...[
                 _etiqueta('Contraseña inicial'),
                 TextField(
@@ -794,9 +793,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3. Información del usuario (detalle + acciones Editar / Eliminar / Desactivar)
-// ---------------------------------------------------------------------------
+// Detalle de usuario
 
 class DetalleUsuarioScreen extends StatefulWidget {
   final String id;
@@ -825,7 +822,6 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
         ),
       ),
     );
-    // No hace falta setState: el StreamBuilder se refresca solo.
   }
 
   Future<void> _cambiarEstado(Usuario usuario) async {
@@ -839,6 +835,45 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
         SnackBar(
           content: Text('No se pudo cambiar el estado: ${_mensajeError(e)}'),
         ),
+      );
+    } finally {
+      if (mounted) setState(() => _procesando = false);
+    }
+  }
+
+  Future<void> _restablecerPassword(Usuario usuario) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restablecer contraseña'),
+        content: Text(
+          'Se enviará un correo a ${usuario.correo} con un enlace para que '
+          '"${usuario.nombre}" cree una contraseña nueva.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Enviar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted) return;
+
+    setState(() => _procesando = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await widget.service.enviarRestablecimientoPassword(usuario);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Correo enviado a ${usuario.correo}.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo enviar: ${_mensajeError(e)}')),
       );
     } finally {
       if (mounted) setState(() => _procesando = false);
@@ -1048,6 +1083,13 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
                 ),
               ),
             ),
+          ),
+          const SizedBox(height: 10),
+          _BotonContorno(
+            texto: 'Restablecer contraseña',
+            icono: Icons.lock_reset,
+            color: _colorAcento,
+            onPressed: _procesando ? null : () => _restablecerPassword(u),
           ),
           const SizedBox(height: 10),
           _BotonContorno(

@@ -3,23 +3,16 @@ import 'package:flutter/material.dart';
 import 'AppDrawer.dart';
 import '../modelos/evento_auditoria_modelo.dart';
 import '../controladores/auditoria_service.dart';
+import '../controladores/permisos_service.dart';
 
-// Colores reutilizados del diseño de la app (mismos que en main.dart)
+// Colores
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
 const Color _colorBorde = Color(0xFFE8DFD8);
 const Color _fondoInput = Color(0xFFFCFAF7);
 
-/// Pantalla principal: "Auditoria".
-///
-/// Este módulo NO escribe nada: solo lee la colección `auditoria`, en la
-/// que deberían escribir el resto de módulos (Ventas, Stock, Usuarios,
-/// Accesos, Productos...) cada vez que crean/editan/eliminan/ingresan algo,
-/// usando `AuditoriaService.registrarEvento(...)`. Por eso este módulo es
-/// difícil de probar solo: la forma real de probarlo es generando eventos
-/// desde los otros módulos, o cargando los datos de prueba de
-/// `lib/Chino/controladores/seed_data.dart`.
+// Pantalla de auditoría
 class AuditoriaScreen extends StatefulWidget {
   const AuditoriaScreen({super.key});
 
@@ -32,20 +25,38 @@ class _AuditoriaScreenState extends State<AuditoriaScreen> {
   final TextEditingController _buscadorController = TextEditingController();
   final AuditoriaService _auditoriaService = AuditoriaService();
 
+  // Módulos de la bitácora
+  static const List<String> _modulos = [
+    'Todos',
+    'Ventas',
+    'Productos',
+    'Stock',
+    'Materia Prima',
+    'Usuarios',
+    'Sucursales',
+    'Accesos',
+  ];
+
   String _filtroSeleccionado = 'Todos';
+  String _moduloSeleccionado = 'Todos';
   String _textoBusqueda = '';
 
   List<EventoAuditoria> _filtrar(List<EventoAuditoria> eventos) {
     return eventos.where((e) {
       final textoBusqueda = _textoBusqueda.toLowerCase();
       final coincideTexto = e.titulo.toLowerCase().contains(textoBusqueda) ||
-          e.descripcion.toLowerCase().contains(textoBusqueda);
+          e.descripcion.toLowerCase().contains(textoBusqueda) ||
+          e.autor.toLowerCase().contains(textoBusqueda) ||
+          e.modulo.toLowerCase().contains(textoBusqueda) ||
+          e.idReferencia.toLowerCase().contains(textoBusqueda);
+      final coincideModulo = _moduloSeleccionado == 'Todos' ||
+          e.modulo.trim().toLowerCase() == _moduloSeleccionado.toLowerCase();
       final coincideFiltro = _filtroSeleccionado == 'Todos' ||
           (_filtroSeleccionado == 'Crear' && e.tipo == TipoEvento.crear) ||
           (_filtroSeleccionado == 'Editar' && e.tipo == TipoEvento.editar) ||
           (_filtroSeleccionado == 'Eliminar' && e.tipo == TipoEvento.eliminar) ||
           (_filtroSeleccionado == 'Ingresar' && e.tipo == TipoEvento.ingresar);
-      return coincideTexto && coincideFiltro;
+      return coincideTexto && coincideFiltro && coincideModulo;
     }).toList();
   }
 
@@ -64,6 +75,10 @@ class _AuditoriaScreenState extends State<AuditoriaScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Solo admin
+    if (!Permisos.instance.puedeVer(ModuloApp.auditoria)) {
+      return const AccesoRestringido(modulo: 'Auditoría');
+    }
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AppDrawer(moduloActual: ModuloApp.auditoria),
@@ -139,9 +154,39 @@ class _AuditoriaScreenState extends State<AuditoriaScreen> {
                   );
                 }).toList(),
               ),
+              const SizedBox(height: 14),
+
+              // Filtro por módulo
+              DropdownButtonFormField<String>(
+                key: ValueKey('modulo_$_moduloSeleccionado'),
+                initialValue: _moduloSeleccionado,
+                isExpanded: true,
+                items: _modulos
+                    .map((m) => DropdownMenuItem(
+                          value: m,
+                          child: Text(m == 'Todos' ? 'Todos los módulos' : m),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() => _moduloSeleccionado = v ?? 'Todos'),
+                decoration: InputDecoration(
+                  labelText: 'Módulo',
+                  filled: true,
+                  fillColor: _fondoInput,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _colorBorde),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _colorAcento),
+                  ),
+                ),
+              ),
               const SizedBox(height: 18),
 
-              // Bitácora, en vivo desde Firestore.
+              // Bitácora en vivo
               StreamBuilder<List<EventoAuditoria>>(
                 stream: _auditoriaService.streamEventos(),
                 builder: (context, snapshot) {
@@ -160,11 +205,15 @@ class _AuditoriaScreenState extends State<AuditoriaScreen> {
 
                   final eventos = _filtrar(snapshot.data!);
                   if (eventos.isEmpty) {
-                    return const _MensajeEstado(
+                    final hayFiltros = snapshot.data!.isNotEmpty;
+                    return _MensajeEstado(
                       icono: Icons.fact_check_outlined,
-                      texto: 'Todavía no hay eventos registrados.\n'
-                          'Se llenan cuando otros módulos (Ventas, Stock, Usuarios...) '
-                          'llaman a AuditoriaService.registrarEvento(), o con los datos de prueba.',
+                      texto: hayFiltros
+                          ? 'No hay eventos con los filtros seleccionados.\n'
+                              'Cambia el módulo, el tipo o la búsqueda.'
+                          : 'Todavía no hay eventos registrados.\n'
+                              'Aparecerán cuando se cree, edite o elimine algo en Ventas, '
+                              'Productos, Stock, Usuarios y demás módulos, o al iniciar sesión.',
                     );
                   }
 
@@ -286,9 +335,7 @@ class _Etiqueta extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Pantalla de detalle: "Detalle del evento" (se abre al tocar un evento)
-// ---------------------------------------------------------------------------
+// Detalle del evento
 
 class DetalleEventoScreen extends StatelessWidget {
   final EventoAuditoria evento;
@@ -333,7 +380,7 @@ class DetalleEventoScreen extends StatelessWidget {
               ),
               const SizedBox(height: 22),
 
-              // ----- Información general -----
+              // Información general
               const Text(
                 'Información general',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _textoOscuro),
@@ -347,7 +394,7 @@ class DetalleEventoScreen extends StatelessWidget {
               const SizedBox(height: 14),
               _campoLectura('Fecha y hora', evento.fechaFormateada),
 
-              // ----- Productos involucrados (solo si aplica) -----
+              // Productos involucrados
               if (evento.productos.isNotEmpty) ...[
                 const SizedBox(height: 22),
                 Text(
@@ -359,7 +406,7 @@ class DetalleEventoScreen extends StatelessWidget {
                 _TotalUnidades(productos: evento.productos),
               ],
 
-              // ----- Datos adicionales según el tipo de evento -----
+              // Datos adicionales
               if (evento.datosAdicionales.isNotEmpty) ...[
                 const SizedBox(height: 22),
                 const Text(
@@ -379,8 +426,7 @@ class DetalleEventoScreen extends StatelessWidget {
     );
   }
 
-  /// Campo de solo lectura, con el mismo estilo visual que los inputs
-  /// de Stock.dart pero sin permitir edición (la auditoría no se modifica).
+  // Campo de solo lectura
   Widget _campoLectura(String etiqueta, String valor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,7 +448,7 @@ class DetalleEventoScreen extends StatelessWidget {
   }
 }
 
-/// Tarjeta de un producto involucrado en el evento (nombre + cantidad).
+// Tarjeta de producto
 class _TarjetaProductoMovimiento extends StatelessWidget {
   final ProductoMovimiento producto;
 
@@ -452,7 +498,7 @@ class _TarjetaProductoMovimiento extends StatelessWidget {
   }
 }
 
-/// Pequeño resumen con el total de unidades sumando todos los productos.
+// Total de unidades
 class _TotalUnidades extends StatelessWidget {
   final List<ProductoMovimiento> productos;
 

@@ -5,58 +5,65 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../Chino/modelos/usuario_modelo.dart' show kColeccionUsuarios;
 import '../../Henry/modelos/sucursal_modelo.dart' show kColeccionSucursales;
 
-////////////////////////////FUNCIONES DE CARGAR DATOS EN LA BD//////////////////////////
+// Referencia a ventas
 final CollectionReference<Map<String, dynamic>> VentasRef = FirebaseFirestore
     .instance
     .collection('ventas');
 
-//Elementos de carga de datos----------------------------
+// Documento de venta a objeto
+CRUDVentas _ventaDesdeDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data();
+  // Productos de la venta
+
+  // Acepta items o productos
+  final itemsFirestore = (data['items'] ?? data['productos']) as List?;
+
+  List<ProductList> listaProductos = [];
+
+  if (itemsFirestore != null) {
+    listaProductos = itemsFirestore.map((item) {
+      final precioVal = (item['precioUnitario'] ?? item['precio']) as num?;
+      return ProductList(
+        codigo: item['codigo']?.toString() ?? '',
+        nombre: item['nombre']?.toString() ?? '',
+        cantidad: (item['cantidad'] as num?)?.toDouble() ?? 0.0,
+        precio: precioVal?.toDouble() ?? 0.0,
+        productoId: item['productoId']?.toString() ?? '',
+      );
+    }).toList();
+  }
+
+  return CRUDVentas(
+    id: doc.id,
+    codigoV:
+        data['codigoV']?.toString() ??
+        doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length),
+    estado: data['estado']?.toString() ?? 'Activo',
+    sucursalU:
+        data['sucursal']?.toString() ??
+        data['sucursalU']?.toString() ??
+        'Norte',
+    fecha: data['fecha']?.toString() ?? '',
+    productos: listaProductos,
+  );
+}
+
+// Cargar ventas (una sola vez)
 Future<List<CRUDVentas>> cargarVentaDb() async {
   try {
     final snapshot = await VentasRef.get();
-
-    final lista = snapshot.docs.map((doc) {
-      final data = doc.data();
-      ////////////////////////////////////////ME SIRVE PARA AÑADIR MAS DE 1 PRODUCTO AL REGISTRO
-
-      // Soporta tanto 'items' (como en Firestore) como 'productos'
-      final itemsFirestore = (data['items'] ?? data['productos']) as List?;
-
-      List<ProductList> listaProductos = [];
-
-      if (itemsFirestore != null) {
-        listaProductos = itemsFirestore.map((item) {
-          final precioVal =
-              (item['precioUnitario'] ?? item['precio']) as num?;
-          return ProductList(
-            codigo: item['codigo']?.toString() ?? '',
-            nombre: item['nombre']?.toString() ?? '',
-            cantidad: (item['cantidad'] as num?)?.toDouble() ?? 0.0,
-            precio: precioVal?.toDouble() ?? 0.0,
-          );
-        }).toList();
-      }
-
-      return CRUDVentas(
-        id: doc.id,
-        codigoV:
-            data['codigoV']?.toString() ??
-            doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length),
-        estado: data['estado']?.toString() ?? 'Activo',
-        sucursalU:
-            data['sucursal']?.toString() ??
-            data['sucursalU']?.toString() ??
-            'Norte',
-        fecha: data['fecha']?.toString() ?? '',
-        productos: listaProductos,
-      );
-    }).toList();
-
-    return lista;
+    return snapshot.docs.map(_ventaDesdeDoc).toList();
   } catch (e) {
     debugPrint('ERROR AL CARGAR REGISTRO: $e');
     return [];
   }
+}
+
+// Ventas en tiempo real
+Stream<List<CRUDVentas>> streamVentasDb() {
+  return VentasRef.snapshots().map(
+    (snapshot) => snapshot.docs.map(_ventaDesdeDoc).toList(),
+  );
 }
 
 Future<void> probarFirebase() async {
@@ -68,27 +75,32 @@ Future<void> probarFirebase() async {
   }
 }
 
-// cargar Productos/////////////////////////////////////////////////////////////////
-/// Convierte un valor de Firestore a número aunque venga como texto ("12,50").
+// Valor a número
 double _aNumero(dynamic v) {
   if (v is num) return v.toDouble();
   if (v is String) return double.tryParse(v.trim().replaceAll(',', '.')) ?? 0.0;
   return 0.0;
 }
 
-/// Productos de la colección `productos` que NO estén inactivos, ordenados por
-/// nombre.
-///
-/// - No usa `orderBy` (dejaba fuera los documentos sin ese campo).
-/// - Cada documento se lee por separado: uno con datos raros se omite en vez
-///   de tumbar toda la lista.
-/// - Los errores de Firestore (permisos, red) NO se tragan: llegan a la
-///   pantalla para mostrarlos.
+// Productos activos
 Future<List<ProductList>> cargarProductosDb() async {
   final snapshot = await FirebaseFirestore.instance
       .collection('productos')
       .get();
+  return _productosDesdeSnapshot(snapshot);
+}
 
+// Productos en tiempo real
+Stream<List<ProductList>> streamProductosDb() {
+  return FirebaseFirestore.instance
+      .collection('productos')
+      .snapshots()
+      .map(_productosDesdeSnapshot);
+}
+
+List<ProductList> _productosDesdeSnapshot(
+  QuerySnapshot<Map<String, dynamic>> snapshot,
+) {
   final lista = <ProductList>[];
   for (final doc in snapshot.docs) {
     try {
@@ -106,6 +118,7 @@ Future<List<ProductList>> cargarProductosDb() async {
           nombre: nombre,
           cantidad: 1.0,
           precio: _aNumero(data['precio']),
+          productoId: doc.id,
           sucursal: (data['sucursal'] ?? '').toString().trim(),
         ),
       );
@@ -118,9 +131,7 @@ Future<List<ProductList>> cargarProductosDb() async {
   return lista;
 }
 
-// cargar Sucursales////////////////////////////////////////////////////////////////
-/// Nombres de las sucursales ACTIVAS de la colección `sucursales` (la misma
-/// que administra el módulo de Sucursales).
+// Sucursales activas
 Future<List<String>> cargarSucursalesDb() async {
   final snapshot = await FirebaseFirestore.instance
       .collection(kColeccionSucursales)
@@ -137,9 +148,7 @@ Future<List<String>> cargarSucursalesDb() async {
   return nombres;
 }
 
-// Cargar Sucursal de Usuario //////////////////////////////////////////////////
-/// Sucursal del usuario que inició sesión (`usuarios/{uid}`). Devuelve '' si no
-/// hay sesión o el usuario no tiene sucursal asignada.
+// Sucursal del usuario
 Future<String> cargarSucursalUsuarioDb() async {
   try {
     final uid = FirebaseAuth.instance.currentUser?.uid;

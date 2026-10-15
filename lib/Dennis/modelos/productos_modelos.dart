@@ -1,13 +1,17 @@
+// Producto del menú
 class Producto {
   String? id;
   String codigo;
   String nombre;
   String categoria;
   double precio;
+  // Existencia actual
   double cantidad;
+  // Mínimo antes de avisar stock bajo
   double stockMinimo;
   String estado;
   String sucursal;
+  // Receta del producto
   List<Ingrediente> ingredientes;
 
   Producto({
@@ -24,8 +28,10 @@ class Producto {
   });
 }
 
+// Ingrediente de un producto
 class Ingrediente {
   String nombre;
+  // Cantidad con su unidad (ej. 100 g)
   String cantidad;
 
   Ingrediente({

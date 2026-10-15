@@ -1,34 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Colección de Firestore con el perfil de cada usuario del sistema. El id
-/// del documento es el `uid` de la cuenta en Firebase Authentication, así el
-/// login puede buscar el perfil (rol, estado) directamente con ese uid.
+// Colección de usuarios
 const String kColeccionUsuarios = 'usuarios';
 
-/// Roles disponibles en el formulario.
+// Roles
 const List<String> kRolesUsuario = ['Administrador', 'Vendedor'];
 
-/// Estados visibles en la app. Además existe 'Eliminado' (borrado lógico):
-/// esos usuarios no se muestran en la lista y no pueden iniciar sesión.
+// Estados (Eliminado = borrado lógico)
 const List<String> kEstadosUsuario = ['Activo', 'Inactivo'];
 const String kEstadoEliminado = 'Eliminado';
 
-/// Modelo de un usuario (perfil en Firestore + cuenta en Authentication).
-///
-/// Documento en `usuarios/{uid}`:
-/// ```
-/// {
-///   "codigo": "U001",
-///   "nombre": "Jose David Perez Martines",
-///   "correo": "jose@email.com",
-///   "telefono": "87342971",
-///   "rol": "Vendedor",
-///   "sucursal": "Norte",
-///   "estado": "Activo",
-///   "actualizadoEn": <Timestamp>
-/// }
-/// ```
-/// La contraseña NUNCA se guarda aquí: vive solo en Authentication.
+// Modelo de usuario
 class Usuario {
   final String id; // uid de Firebase Authentication
   final String codigo;

@@ -6,7 +6,7 @@ class CRUDVentas {
   String fecha;
   List<ProductList> productos;
 
-  /// Total de la venta: suma de precio x cantidad de cada producto.
+  // Total de la venta
   double get total =>
       productos.fold<double>(0, (suma, p) => suma + p.precio * p.cantidad);
 
@@ -26,8 +26,10 @@ class ProductList {
   double cantidad;
   double precio;
 
-  /// Sucursal a la que pertenece el producto en Firestore (solo se usa para
-  /// filtrar los productos disponibles al registrar una venta).
+  // Id del producto en Firestore
+  String productoId;
+
+  // Sucursal del producto
   String sucursal;
 
   ProductList({
@@ -35,6 +37,7 @@ class ProductList {
     required this.nombre,
     required this.cantidad,
     required this.precio,
+    this.productoId = '',
     this.sucursal = '',
   });
 }
@@ -62,6 +65,7 @@ Map<String, dynamic> ventaToMap(CRUDVentas venta) {
         'nombre': p.nombre,
         'cantidad': p.cantidad,
         'precio': p.precio,
+        'productoId': p.productoId,
       };
     }).toList(),
     'items': venta.productos.map((p) {
@@ -70,10 +74,10 @@ Map<String, dynamic> ventaToMap(CRUDVentas venta) {
         'nombre': p.nombre,
         'cantidad': p.cantidad,
         'precioUnitario': p.precio,
+        'productoId': p.productoId,
       };
     }).toList(),
-    // `sucursal` es el campo que leen Reportes y Sucursales; `sucursalU` se
-    // conserva por compatibilidad con las ventas ya guardadas.
+    // sucursalU se mantiene por compatibilidad
     'sucursal': venta.sucursalU,
     'sucursalU': venta.sucursalU,
     'total': venta.total,

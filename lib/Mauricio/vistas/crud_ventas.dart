@@ -1,13 +1,18 @@
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import '../../firebase_options.dart';
 import '../modelos/FuncionVenta.dart';
 import '../controladores/ConeccionFirebase.dart';
+import '../controladores/VentasStock.dart';
 import '../../Chino/vistas/AppDrawer.dart';
+import '../../Chino/controladores/auditoria_service.dart';
+import '../../Chino/modelos/evento_auditoria_modelo.dart'
+    show TipoEvento, ProductoMovimiento, CampoInfo;
 import '../../Henry/modelos/sucursal_modelo.dart' show etiquetaSucursal;
+import '../../Chino/controladores/permisos_service.dart';
 
-// Mismos colores y estilos que usan Productos, Materia Prima, Stock,
-// Reportes y Sucursales, para que todos los CRUDs se vean igual.
+// Colores
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
@@ -49,8 +54,7 @@ String _numero(double v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : v.to
 
 double _totalVenta(CRUDVentas v) => v.total;
 
-/// Nombre de sucursal sin el prefijo "Sucursal" y en minúsculas, para comparar
-/// "Centro" con "Sucursal Centro".
+// Nombre de sucursal normalizado
 String _norm(String s) =>
     s.trim().toLowerCase().replaceFirst(RegExp(r'^sucursal\s+'), '');
 
@@ -68,7 +72,7 @@ Widget _tituloSeccion(String texto) => Text(
   ),
 );
 
-/// Calendario/reloj con el color de acento de la app.
+// Tema del calendario y reloj
 Widget _temaPicker(BuildContext context, Widget? child) => Theme(
   data: Theme.of(context).copyWith(
     colorScheme: Theme.of(context).colorScheme.copyWith(primary: _colorAcento),
@@ -103,41 +107,91 @@ class VentasApp extends StatelessWidget {
 }
 
 class VentasScreen extends StatefulWidget {
-  const VentasScreen({super.key});
+  const VentasScreen({super.key, this.abrirNuevaVenta = false});
+
+  // Abre directo el formulario de nueva venta
+  final bool abrirNuevaVenta;
 
   @override
   State<VentasScreen> createState() => _VentasScreenState();
 }
 
 class _VentasScreenState extends State<VentasScreen> {
-  // Llave para abrir la barra lateral desde la barra superior.
+  // Llave del menú lateral
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   // FIRESTORE
   List<CRUDVentas> Listventas = [];
   bool cargandoVenta = true;
 
+  // Suscripciones en tiempo real
+  StreamSubscription<List<CRUDVentas>>? _subVentas;
+  StreamSubscription<List<ProductList>>? _subProductos;
+  bool _primeraCargaVentas = true;
+
   @override
   void initState() {
     super.initState();
-    cargarVenta();
+    _escucharVentas();
+    _escucharProductos();
   }
 
-  //Elementos de carga de datos----------------------------
-  Future<void> cargarVenta() async {
-    final lista = await cargarVentaDb();
-    if (!mounted) return;
-    setState(() {
-      Listventas = lista;
-      cargandoVenta = false;
-    });
+  void _escucharVentas() {
+    _subVentas?.cancel();
+    _subVentas = streamVentasDb().listen(
+      (todas) {
+        // El vendedor solo ve su sucursal
+        final permisos = Permisos.instance;
+        final lista = permisos.esAdmin
+            ? todas
+            : todas.where((v) => permisos.esMiSucursal(v.sucursalU)).toList();
+        if (!mounted) return;
+        setState(() {
+          Listventas = lista;
+          cargandoVenta = false;
+          // Actualiza la venta abierta
+          final id = ventaSeleccionado?.id;
+          if (id != null) {
+            final i = lista.indexWhere((v) => v.id == id);
+            if (i != -1) ventaSeleccionado = lista[i];
+          }
+        });
+        // Espera la primera carga para el código
+        if (_primeraCargaVentas) {
+          _primeraCargaVentas = false;
+          if (widget.abrirNuevaVenta) nuevoProducto();
+        }
+      },
+      onError: (e) {
+        debugPrint('ERROR AL ESCUCHAR VENTAS: $e');
+        if (!mounted) return;
+        setState(() => cargandoVenta = false);
+      },
+    );
+  }
+
+  void _escucharProductos() {
+    _subProductos?.cancel();
+    _subProductos = streamProductosDb().listen(
+      (prods) {
+        if (!mounted) return;
+        setState(() {
+          listaProductos = prods;
+          errorProductos = null;
+        });
+      },
+      onError: (e) {
+        if (!mounted) return;
+        setState(() => errorProductos = e.toString());
+      },
+    );
   }
 
   CRUDVentas? ventaSeleccionado;
   String filtro = 'Todos';
   String textoBusqueda = '';
 
-  // CONTROLADORES
+  // Controladores
   final CodigoVentaController = TextEditingController();
   final sucursalController = TextEditingController();
   final HoraFechaVentaController = TextEditingController();
@@ -147,17 +201,17 @@ class _VentasScreenState extends State<VentasScreen> {
   String vista = 'lista';
   List<ProductList> productosTemp = [];
 
-  // Sucursales activas leídas de Firestore (colección `sucursales`).
+  // Sucursales activas
   List<String> listaSucursales = [];
   bool cargandoSucursales = false;
 
-  // Error (si lo hubo) al leer los productos de Firestore.
+  // Error al leer los productos
   String? errorProductos;
 
   double get _totalProductosTemp =>
       productosTemp.fold<double>(0, (suma, p) => suma + p.precio * p.cantidad);
 
-  //FILTRAR Ventas////////////////////////////////////////////////////////////////
+  // Filtrar ventas
   List<CRUDVentas> get ventasFiltrados {
     final listaFiltrada = Listventas.where((ventas) {
       final coincideBusqueda = ventas.codigoV.toLowerCase().contains(
@@ -180,7 +234,7 @@ class _VentasScreenState extends State<VentasScreen> {
       return coincideBusqueda && coincideFiltro;
     }).toList();
 
-    // Ordenar de la fecha más reciente a la más antigua
+    // Ordenar por fecha reciente
     listaFiltrada.sort((a, b) {
       final DateTime? fechaA = DateTime.tryParse(a.fecha);
       final DateTime? fechaB = DateTime.tryParse(b.fecha);
@@ -193,17 +247,17 @@ class _VentasScreenState extends State<VentasScreen> {
     return listaFiltrada;
   }
 
-  //LIMPIAR FORMULARIO//////////////////////////////////////////////////////////
+  // Limpiar formulario
   void limpiarFormulario() {
     sucursalController.clear();
     HoraFechaVentaController.clear();
     EstadoVentaController.text = 'Activo';
     estadoSeleccionado = 'Activo';
     CodigoVentaController.clear();
-    productosTemp.clear(); // <-- Limpia la lista temporal de productos
+    productosTemp.clear(); // limpia la lista temporal
   }
 
-  // NUEVO PRODUCTO/////////////////////////////////////////////////////////////
+  // Nueva venta
   void nuevoProducto() {
     limpiarFormulario();
     cargarProductos();
@@ -217,7 +271,7 @@ class _VentasScreenState extends State<VentasScreen> {
     });
   }
 
-  // EDITAR///////////////////////////////////////////////////////////////////////////
+  // Editar venta
   void editarVenta(CRUDVentas venta) {
     cargarProductos();
     cargarSucursales(elegirPorDefecto: false);
@@ -233,6 +287,7 @@ class _VentasScreenState extends State<VentasScreen> {
         nombre: p.nombre,
         cantidad: p.cantidad,
         precio: p.precio,
+        productoId: p.productoId,
       );
     }).toList();
 
@@ -242,11 +297,56 @@ class _VentasScreenState extends State<VentasScreen> {
     });
   }
 
-  // GUARDAR///////////////////////////////////////////////////////////////////
+  // Registrar en auditoría
+  void _auditarVenta(
+    TipoEvento tipo,
+    String descripcion,
+    CRUDVentas v, {
+    String? detalle,
+  }) {
+    AuditoriaService().registrarSeguro(
+      modulo: 'Ventas',
+      tipo: tipo,
+      descripcion: descripcion,
+      idReferencia: v.codigoV,
+      productos: v.productos
+          .map(
+            (p) => ProductoMovimiento(
+              nombre: p.nombre,
+              cantidad: p.cantidad.round(),
+              detalle: '${p.cantidad} x C\$ ${p.precio.toStringAsFixed(2)}',
+            ),
+          )
+          .toList(),
+      datosAdicionales: [
+        CampoInfo('Venta', v.codigoV),
+        CampoInfo('Sucursal', v.sucursalU),
+        CampoInfo('Estado', v.estado),
+        CampoInfo('Fecha', v.fecha),
+        CampoInfo('Total', 'C\$ ${v.total.toStringAsFixed(2)}'),
+        if (detalle != null) CampoInfo('Detalle', detalle),
+      ],
+    );
+  }
+
+  // Guardar venta
   Future<void> guardarRegistro() async {
     if (productosTemp.isEmpty) {
       mostrarMensaje('Agregue al menos un producto');
       return;
+    }
+    // El vendedor usa su sucursal
+    if (!Permisos.instance.puedeElegirSucursalDeVenta) {
+      final propia = Permisos.instance.sucursal;
+      if (propia.isEmpty) {
+        mostrarMensaje(
+            'Tu usuario no tiene sucursal asignada. Pídele al administrador que te asigne una.');
+        return;
+      }
+      sucursalController.text = listaSucursales.firstWhere(
+        (n) => _norm(n) == _norm(propia),
+        orElse: () => propia,
+      );
     }
     try {
       if (vista == 'nuevo') {
@@ -258,11 +358,10 @@ class _VentasScreenState extends State<VentasScreen> {
           fecha: HoraFechaVentaController.text.trim().isEmpty ? DateTime.now().toString().substring(0, 16) : HoraFechaVentaController.text.trim(),
         );
 
-        final docRef = await VentasRef.add(ventaToMap(nuevo));
-        nuevo.id = docRef.id;
+        nuevo.id = await registrarVentaConStock(nuevo);
+        _auditarVenta(TipoEvento.crear, 'Venta ${nuevo.codigoV} registrada', nuevo);
         if (!mounted) return;
         setState(() {
-          Listventas.add(nuevo);
           vista = 'lista';
         });
         limpiarFormulario();
@@ -273,11 +372,27 @@ class _VentasScreenState extends State<VentasScreen> {
           mostrarMensaje('No se encontró el registro para actualizar');
           return;
         }
-        ventaG.estado = estadoSeleccionado;
-        ventaG.sucursalU = sucursalController.text.trim().isEmpty ? 'Norte' : sucursalController.text.trim();
-        ventaG.fecha = HoraFechaVentaController.text.trim();
-        ventaG.productos = List.from(productosTemp);
-        await VentasRef.doc(ventaG.id).update(ventaToMap(ventaG));
+        // Copia para no dejar la venta a medias
+        final anteriores = List<ProductList>.from(ventaG.productos);
+        final sucursalAnterior = ventaG.sucursalU;
+        final actualizada = CRUDVentas(
+          id: ventaG.id,
+          codigoV: ventaG.codigoV,
+          estado: estadoSeleccionado,
+          sucursalU: sucursalController.text.trim().isEmpty ? 'Norte' : sucursalController.text.trim(),
+          fecha: HoraFechaVentaController.text.trim(),
+          productos: List.from(productosTemp),
+        );
+        await actualizarVentaConStock(
+          actualizada,
+          anteriores: anteriores,
+          sucursalAnterior: sucursalAnterior,
+        );
+        ventaG.estado = actualizada.estado;
+        ventaG.sucursalU = actualizada.sucursalU;
+        ventaG.fecha = actualizada.fecha;
+        ventaG.productos = actualizada.productos;
+        _auditarVenta(TipoEvento.editar, 'Venta ${ventaG.codigoV} actualizada', ventaG);
         if (!mounted) return;
 
         setState(() {
@@ -286,12 +401,12 @@ class _VentasScreenState extends State<VentasScreen> {
         mostrarMensaje('Venta actualizada correctamente');
       }
     } catch (e) {
-      mostrarMensaje('Error al guardar: $e');
+      mostrarMensaje(e is VentaStockException ? e.mensaje : 'Error al guardar: $e');
       print(' ERROR AL REGIISTRAR LA VENTA: $e');
     }
   }
 
-  // ELIMINAR/////////////////////////////////////////////////////////////////
+  // Eliminar venta
   void eliminarRegistro() {
     if (ventaSeleccionado == null) return;
     final venta = ventaSeleccionado!;
@@ -337,7 +452,8 @@ class _VentasScreenState extends State<VentasScreen> {
                 }
 
                 try {
-                  await VentasRef.doc(venta.id).delete();
+                  await eliminarVentaConStock(venta);
+                  _auditarVenta(TipoEvento.eliminar, 'Venta ${venta.codigoV} eliminada', venta);
                   if (!mounted) return;
                   setState(() {
                     Listventas.remove(venta);
@@ -349,7 +465,7 @@ class _VentasScreenState extends State<VentasScreen> {
                   mostrarMensaje('Registro eliminado correctamente');
                 } catch (e) {
                   if (context.mounted) Navigator.pop(context);
-                  mostrarMensaje('Error al eliminar: $e');
+                  mostrarMensaje(e is VentaStockException ? e.mensaje : 'Error al eliminar: $e');
                   print('ERROR AL ELIMINAR EL REGISTRO: $e');
                 }
               },
@@ -361,7 +477,7 @@ class _VentasScreenState extends State<VentasScreen> {
     );
   }
 
-  // cargar Productos/////////////////////////////////////////////////////////////////
+  // Productos disponibles
   List<ProductList> listaProductos = [];
 
   Future<void> cargarProductos() async {
@@ -380,9 +496,7 @@ class _VentasScreenState extends State<VentasScreen> {
     }
   }
 
-  // Cargar sucursales ///////////////////////////////////////////////////////////
-  // Lee las sucursales activas de Firestore. Si `elegirPorDefecto` es true,
-  // deja seleccionada la sucursal del usuario que inició sesión (o la primera).
+  // Cargar sucursales
   Future<void> cargarSucursales({bool elegirPorDefecto = true}) async {
     setState(() {
       cargandoSucursales = true;
@@ -391,7 +505,15 @@ class _VentasScreenState extends State<VentasScreen> {
       final nombres = await cargarSucursalesDb();
 
       String? elegida;
-      if (elegirPorDefecto) {
+      if (!Permisos.instance.puedeElegirSucursalDeVenta) {
+        // Vendedor: sucursal fija
+        final propia = Permisos.instance.sucursal;
+        elegida = nombres.firstWhere(
+          (n) => _norm(n) == _norm(propia),
+          orElse: () => propia,
+        );
+        if (elegida.isEmpty) elegida = null;
+      } else if (elegirPorDefecto) {
         final deUsuario = await cargarSucursalUsuarioDb();
         for (final n in nombres) {
           if (deUsuario.isNotEmpty && _norm(n) == _norm(deUsuario)) {
@@ -419,7 +541,7 @@ class _VentasScreenState extends State<VentasScreen> {
     }
   }
 
-  // ACTIVAR / DESACTIVAR////////////////////////////////////////////////////////
+  // Activar o desactivar
   Future<void> cambiarEstadodelRegistro() async {
     if (ventaSeleccionado == null) return;
     final ventaEstado = ventaSeleccionado!;
@@ -430,6 +552,16 @@ class _VentasScreenState extends State<VentasScreen> {
     }
     try {
       await VentasRef.doc(ventaEstado.id).update({'estado': nuevoEstado});
+      final estadoAnterior = ventaEstado.estado;
+      ventaEstado.estado = nuevoEstado;
+      _auditarVenta(
+        TipoEvento.editar,
+        nuevoEstado == 'Activo'
+            ? 'Venta ${ventaEstado.codigoV} activada'
+            : 'Venta ${ventaEstado.codigoV} desactivada',
+        ventaEstado,
+        detalle: 'Estado: $estadoAnterior → $nuevoEstado',
+      );
       if (!mounted) return;
       setState(() {
         ventaEstado.estado = nuevoEstado;
@@ -443,16 +575,15 @@ class _VentasScreenState extends State<VentasScreen> {
     }
   }
 
-  // MENSAJE////////////////////////////////////////////////////////////////////
+  // Mostrar mensaje
   void mostrarMensaje(String mensaje) {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(mensaje)));
   }
 
-  //-----agrega la lista de productos -----------------------------------------
+  // Agregar producto a la venta
   Future<void> agregarProductoVenta() async {
-    // Se vuelve a leer Firestore al abrir el diálogo para tener la lista al día.
     await cargarProductos();
     if (!mounted) return;
 
@@ -466,9 +597,7 @@ class _VentasScreenState extends State<VentasScreen> {
           builder: (context, setStateDialog) {
             final sucursalVenta = sucursalController.text.trim();
 
-            // Productos de la sucursal de la venta. Si ninguno coincide (por
-            // ejemplo, porque aún no se les asignó sucursal), se muestran todos
-            // los activos para no dejar la lista vacía.
+            // Productos de la sucursal (o todos si no hay)
             final delaSucursal = listaProductos.where((p) {
               return p.sucursal.trim().isEmpty ||
                   sucursalVenta.isEmpty ||
@@ -636,6 +765,7 @@ class _VentasScreenState extends State<VentasScreen> {
                           nombre: productoSeleccionadoDialogo!.nombre,
                           cantidad: cantidad,
                           precio: productoSeleccionadoDialogo!.precio,
+                          productoId: productoSeleccionadoDialogo!.productoId,
                           sucursal: productoSeleccionadoDialogo!.sucursal,
                         ),
                       );
@@ -699,7 +829,7 @@ class _VentasScreenState extends State<VentasScreen> {
     });
   }
 
-  // BUILD
+  // Build
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -708,8 +838,7 @@ class _VentasScreenState extends State<VentasScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // La barra superior (con el botón de menú) solo se muestra en la
-            // lista; los formularios mantienen su propio encabezado.
+            // Barra superior solo en la lista
             if (vista == 'lista')
               ChinoTopBar(scaffoldKey: _scaffoldKey, subtitulo: 'Ventas'),
             Expanded(
@@ -727,7 +856,7 @@ class _VentasScreenState extends State<VentasScreen> {
     );
   }
 
-  // Botón "← Ventas" de las pantallas de formulario y detalle.
+  // Botón volver
   Widget _botonVolver(VoidCallback onPressed) {
     return TextButton.icon(
       onPressed: onPressed,
@@ -740,7 +869,7 @@ class _VentasScreenState extends State<VentasScreen> {
     );
   }
 
-  // LISTA
+  // Lista
   Widget construirLista() {
     final lista = ventasFiltrados;
 
@@ -939,7 +1068,7 @@ class _VentasScreenState extends State<VentasScreen> {
     );
   }
 
-  // DETALLE
+  // Detalle
   Widget construirInformacion() {
     final ventaI = ventaSeleccionado!;
     final activo = ventaI.estado == 'Activo';
@@ -1128,10 +1257,9 @@ class _VentasScreenState extends State<VentasScreen> {
     );
   }
 
-  // FORMULARIO (nuevo / editar)
+  // Formulario (nuevo y editar)
   Widget construirFormulario(bool editar) {
-    // El estado que se guarda es `estadoSeleccionado`; se asegura que el valor
-    // actual exista en la lista del desplegable.
+    // Asegura que el estado esté en la lista
     final estados = {..._kEstados, estadoSeleccionado}.toList();
 
     return SingleChildScrollView(
@@ -1376,11 +1504,31 @@ class _VentasScreenState extends State<VentasScreen> {
     );
   }
 
-  // Desplegable con las sucursales activas que están en Firestore.
+  // Selector de sucursal
   Widget campoSucursal() {
+    // Vendedor: sucursal fija
+    if (!Permisos.instance.puedeElegirSucursalDeVenta) {
+      final propia = Permisos.instance.sucursal;
+      if (propia.isEmpty) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _etiqueta('Sucursal'),
+            const Text(
+              'Tu usuario no tiene sucursal asignada. '
+              'Pídele al administrador que te asigne una.',
+              style: TextStyle(fontSize: 12, color: _rojo),
+            ),
+          ],
+        );
+      }
+      final visible = TextEditingController(text: etiquetaSucursal(propia));
+      return campoSoloLectura('Sucursal', visible);
+    }
+
     final actual = sucursalController.text.trim();
     final nombres = [...listaSucursales];
-    // Si se edita una venta cuya sucursal ya no está activa, se conserva.
+    // Conserva la sucursal si ya no está activa
     if (actual.isNotEmpty && !nombres.any((n) => _norm(n) == _norm(actual))) {
       nombres.add(actual);
     }
@@ -1445,6 +1593,8 @@ class _VentasScreenState extends State<VentasScreen> {
 
   @override
   void dispose() {
+    _subVentas?.cancel();
+    _subProductos?.cancel();
     CodigoVentaController.dispose();
     HoraFechaVentaController.dispose();
     EstadoVentaController.dispose();

@@ -1,21 +1,54 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'Stock.dart';
 import 'Auditoria.dart';
 import 'Reportes.dart';
 import 'MateriaPrima.dart';
 import 'Usuarios.dart';
+import 'Configuracion.dart';
+import '../controladores/permisos_service.dart';
 import '../../Henry/vistas/Sucursales.dart';
 import '../../Dennis/vistas/productos.dart';
 import '../../Mauricio/vistas/crud_ventas.dart' show VentasScreen;
 
-// Mismos colores que usa la barra lateral del Lobby (ver lobby.dart), para
-// que la navegación se vea igual en todos los módulos de Chino.
+// Colores del lobby
 const Color _burgundy = Color(0xFF8D141B);
 const Color _burgundyDark = Color(0xFF681015);
 const Color _textDark = Color(0xFF2E2927);
 
-/// Identifica qué módulo está activo, para resaltarlo en el menú.
+// Cerrar sesión
+Future<void> cerrarSesion(BuildContext context) async {
+  final navigator = Navigator.of(context, rootNavigator: true);
+
+  final confirmar = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Cerrar sesión'),
+      content: const Text('¿Seguro que quieres salir de tu cuenta?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancelar'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          style: TextButton.styleFrom(foregroundColor: _burgundy),
+          child: const Text('Salir'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmar != true) return;
+
+  // Cierra todo hasta la raíz
+  navigator.popUntil((route) => route.isFirst);
+
+  await FirebaseAuth.instance.signOut();
+}
+
+// Módulo activo en el menú
 enum ModuloApp {
   ventas,
   productos,
@@ -27,16 +60,7 @@ enum ModuloApp {
   reportes,
 }
 
-/// Barra lateral compartida por los módulos de Chino. Tiene el mismo look
-/// (colores, tipografía, ítems) que la barra lateral móvil del Lobby.
-/// Úsala en el `drawer:` de cada pantalla principal:
-///
-/// ```dart
-/// Scaffold(
-///   drawer: const AppDrawer(moduloActual: ModuloApp.stock),
-///   ...
-/// )
-/// ```
+// Menú lateral de los módulos
 class AppDrawer extends StatelessWidget {
   final ModuloApp moduloActual;
 
@@ -45,6 +69,12 @@ class AppDrawer extends StatelessWidget {
   void _irA(BuildContext context, ModuloApp modulo) {
     Navigator.pop(context); // cierra la barra lateral
     if (modulo == moduloActual) return; // ya estás en ese módulo
+
+    // Revisa el rol
+    if (!Permisos.instance.puedeVer(modulo)) {
+      avisarSinPermiso(context, 'No tienes permiso para abrir ese módulo.');
+      return;
+    }
 
     final Widget pantalla = switch (modulo) {
       ModuloApp.ventas => const VentasScreen(),
@@ -57,18 +87,23 @@ class AppDrawer extends StatelessWidget {
       ModuloApp.reportes => const ReportesScreen(),
     };
 
-    // pushReplacement para no apilar módulos uno encima del otro.
+    // Reemplaza la pantalla actual
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => pantalla),
     );
   }
 
-  /// Cierra la barra lateral y regresa a la pantalla del Lobby (la que
-  /// abrió el primer módulo de Chino con `Navigator.push`). Como el resto
-  /// de los módulos de Chino se navegan entre sí con `pushReplacement`
-  /// (no apilan pantallas), un solo `pop` siempre te deja de vuelta en el
-  /// Lobby, sin importar en cuál de los tres módulos estés parado.
+  // Abrir configuración
+  void _abrirConfiguracion(BuildContext context) {
+    Navigator.pop(context); // cierra la barra lateral
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const ConfiguracionScreen()),
+    );
+  }
+
+  // Volver al lobby
   void _volverAlLobby(BuildContext context) {
     Navigator.pop(context); // cierra la barra lateral
     Navigator.of(context).pop(); // regresa al Lobby
@@ -200,30 +235,33 @@ class AppDrawer extends StatelessWidget {
                       active: moduloActual == ModuloApp.materiaPrima,
                       onTap: () => _irA(context, ModuloApp.materiaPrima),
                     ),
-                    _DrawerItem(
-                      icon: Icons.people_outline,
-                      title: 'Usuarios',
-                      active: moduloActual == ModuloApp.usuarios,
-                      onTap: () => _irA(context, ModuloApp.usuarios),
-                    ),
-                    _DrawerItem(
-                      icon: Icons.storefront_outlined,
-                      title: 'Sucursales',
-                      active: moduloActual == ModuloApp.sucursales,
-                      onTap: () => _irA(context, ModuloApp.sucursales),
-                    ),
+                    if (Permisos.instance.puedeVer(ModuloApp.usuarios))
+                      _DrawerItem(
+                        icon: Icons.people_outline,
+                        title: 'Usuarios',
+                        active: moduloActual == ModuloApp.usuarios,
+                        onTap: () => _irA(context, ModuloApp.usuarios),
+                      ),
+                    if (Permisos.instance.puedeVer(ModuloApp.sucursales))
+                      _DrawerItem(
+                        icon: Icons.storefront_outlined,
+                        title: 'Sucursales',
+                        active: moduloActual == ModuloApp.sucursales,
+                        onTap: () => _irA(context, ModuloApp.sucursales),
+                      ),
                     _DrawerItem(
                       icon: Icons.bar_chart_outlined,
                       title: 'Reportes',
                       active: moduloActual == ModuloApp.reportes,
                       onTap: () => _irA(context, ModuloApp.reportes),
                     ),
-                    _DrawerItem(
-                      icon: Icons.fact_check_outlined,
-                      title: 'Auditoría',
-                      active: moduloActual == ModuloApp.auditoria,
-                      onTap: () => _irA(context, ModuloApp.auditoria),
-                    ),
+                    if (Permisos.instance.puedeVer(ModuloApp.auditoria))
+                      _DrawerItem(
+                        icon: Icons.fact_check_outlined,
+                        title: 'Auditoría',
+                        active: moduloActual == ModuloApp.auditoria,
+                        onTap: () => _irA(context, ModuloApp.auditoria),
+                      ),
                   ],
                 ),
               ),
@@ -238,13 +276,13 @@ class AppDrawer extends StatelessWidget {
               icon: Icons.settings_outlined,
               title: 'Configuración',
               active: false,
-              onTap: () {},
+              onTap: () => _abrirConfiguracion(context),
             ),
             _DrawerItem(
               icon: Icons.logout_rounded,
               title: 'Cerrar sesión',
               active: false,
-              onTap: () {},
+              onTap: () => cerrarSesion(context),
             ),
             const SizedBox(height: 12),
           ],
@@ -329,9 +367,7 @@ class _DrawerItem extends StatelessWidget {
   }
 }
 
-/// Barra superior compartida por los módulos de Chino (Stock, Reportes,
-/// Auditoría). Tiene el mismo estilo que la barra superior móvil del Lobby:
-/// botón de menú redondeado, logo/avatar y nombre de la panadería.
+// Barra superior de los módulos
 class ChinoTopBar extends StatelessWidget {
   const ChinoTopBar({
     super.key,

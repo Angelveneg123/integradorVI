@@ -1,0 +1,109 @@
+rules_version = '2';
+
+// Reglas de seguridad de integradorVI (Panadería Romero).
+// Refuerzan en el servidor los permisos por rol que la app ya aplica.
+//
+// ANTES DE PUBLICAR:
+//  - El administrador inicial DEBE tener documento en usuarios/{uid} con
+//    rol "Administrador" y estado "Activo"; estas reglas no tratan una
+//    cuenta sin perfil como admin (la app sí).
+//  - Pruébalas en el simulador de reglas de la consola de Firebase.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------ helpers
+    function signedIn() {
+      return request.auth != null;
+    }
+    function perfil() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+    function tienePerfil() {
+      return exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+    function activo() {
+      return signedIn() && tienePerfil() && perfil().get('estado', 'Activo') == 'Activo';
+    }
+    function isAdmin() {
+      return activo() && perfil().get('rol', '') == 'Administrador';
+    }
+    function norm(s) {
+      return s.trim().lower().replace('^sucursal +', '');
+    }
+    function esMiSucursal(nombre) {
+      return activo() && perfil().get('sucursal', '') != ''
+        && norm(perfil().sucursal) == norm(nombre);
+    }
+
+    // ----------------------------------------------------------- usuarios
+    match /usuarios/{uid} {
+      allow read: if activo() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // --------------------------------------------------------- sucursales
+    match /sucursales/{id} {
+      allow read: if activo();
+      allow write: if isAdmin();
+    }
+
+    // ----------------------------------------------------------- productos
+    match /productos/{id} {
+      allow read: if activo();
+      allow create, delete: if isAdmin();
+      // El vendedor solo puede tocar el stock de productos de su sucursal
+      // (ajustes y descuento por ventas); nada de precios ni recetas.
+      allow update: if isAdmin()
+        || (esMiSucursal(resource.data.get('sucursal', ''))
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['stock', 'cantidad', 'actualizadoEn']));
+
+      // Historial de movimientos de stock.
+      match /movimientos/{mov} {
+        allow create: if activo();
+        allow read: if isAdmin();
+      }
+    }
+
+    // ------------------------------------------------------- materia prima
+    match /materia_prima/{id} {
+      allow read: if activo();
+      allow write: if isAdmin();
+    }
+
+    // -------------------------------------------------------------- ventas
+    // OJO: la lectura queda abierta a cualquier usuario activo porque los
+    // reportes leen la colección completa y filtran en la app. Si quieres
+    // que el servidor también limite al vendedor a su sucursal, hay que
+    // cambiar las consultas de la app para que filtren por sucursal.
+    match /ventas/{id} {
+      allow read: if activo();
+      allow create: if isAdmin()
+        || (activo()
+            && esMiSucursal(request.resource.data.get('sucursal', ''))
+            && request.resource.data.get('vendedorId', '') == request.auth.uid);
+      allow update, delete: if isAdmin()
+        || esMiSucursal(resource.data.get('sucursal', resource.data.get('sucursalU', '')));
+    }
+
+    // ----------------------------------------------------------- auditoría
+    match /auditoria/{id} {
+      allow create: if activo();
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------- solicitudes de contraseña
+    // Se crean desde el login (sin sesión); solo el admin las ve y atiende.
+    match /solicitudes_password/{id} {
+      allow create, update: if request.resource.data.keys().hasOnly(['correo', 'estado', 'creadoEn'])
+        && request.resource.data.estado == 'Pendiente';
+      allow read, delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------- preferencias
+    match /preferencias/{uid} {
+      allow read, write: if activo() && request.auth.uid == uid;
+    }
+  }
+}

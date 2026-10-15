@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../Chino/modelos/materia_prima_modelo.dart';
@@ -7,9 +9,12 @@ import '../../Henry/modelos/sucursal_modelo.dart';
 import '../../Henry/controladores/sucursales_service.dart';
 import '../modelos/productos_modelos.dart';
 import '../controladores/productos_service.dart';
+import '../../Chino/controladores/auditoria_service.dart';
+import '../../Chino/modelos/evento_auditoria_modelo.dart'
+    show TipoEvento, CampoInfo;
+import '../../Chino/controladores/permisos_service.dart';
 
-// Mismos colores y estilos que usan Materia Prima, Stock, Reportes y
-// Sucursales, para que todos los CRUDs se vean igual.
+// Colores
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
@@ -20,7 +25,7 @@ const Color _rojo = Color(0xFFB3261E);
 
 const List<String> _kEstados = ['Activo', 'Inactivo'];
 
-/// Convierte una excepción en un texto corto para mostrar en un SnackBar.
+// Error a texto corto
 String _mensajeError(Object e) => e
     .toString()
     .replaceFirst('Bad state: ', '')
@@ -46,9 +51,30 @@ InputDecoration _decoracionCampo({String? hint}) {
 
 String _dinero(double valor) => 'C\$ ${valor.toStringAsFixed(2)}';
 
-// ---------------------------------------------------------------------------
-// 1. Lista de Productos (pantalla principal del módulo, con menú lateral)
-// ---------------------------------------------------------------------------
+// Lista de productos
+
+// Registrar en auditoría
+void _auditarProducto(
+  TipoEvento tipo,
+  String descripcion,
+  Producto p, {
+  String? detalle,
+}) {
+  AuditoriaService().registrarSeguro(
+    modulo: 'Productos',
+    tipo: tipo,
+    descripcion: descripcion,
+    idReferencia: p.codigo,
+    datosAdicionales: [
+      CampoInfo('Producto', p.nombre),
+      CampoInfo('Categoría', p.categoria),
+      CampoInfo('Sucursal', p.sucursal),
+      CampoInfo('Precio', 'C\$ ${p.precio.toStringAsFixed(2)}'),
+      CampoInfo('Estado', p.estado),
+      if (detalle != null) CampoInfo('Detalle', detalle),
+    ],
+  );
+}
 
 class ProductosScreen extends StatefulWidget {
   const ProductosScreen({super.key});
@@ -76,34 +102,41 @@ class _ProductosScreenState extends State<ProductosScreen> {
   String _filtroSeleccionado = 'Todos';
   String _textoBusqueda = '';
 
+  // Suscripción en tiempo real
+  StreamSubscription<List<Producto>>? _sub;
+
   @override
   void initState() {
     super.initState();
-    _cargar();
+    _suscribir();
   }
 
   @override
   void dispose() {
+    _sub?.cancel();
     _buscadorController.dispose();
     super.dispose();
   }
 
-  Future<void> _cargar() async {
-    try {
-      final lista = await _service.obtenerProductos();
-      if (!mounted) return;
-      setState(() {
-        _productos = lista;
-        _cargando = false;
-        _error = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cargando = false;
-        _error = _mensajeError(e);
-      });
-    }
+  void _suscribir() {
+    _sub?.cancel();
+    _sub = _service.streamProductos().listen(
+      (lista) {
+        if (!mounted) return;
+        setState(() {
+          _productos = lista;
+          _cargando = false;
+          _error = null;
+        });
+      },
+      onError: (e) {
+        if (!mounted) return;
+        setState(() {
+          _cargando = false;
+          _error = _mensajeError(e);
+        });
+      },
+    );
   }
 
   List<Producto> get _productosFiltrados {
@@ -132,7 +165,6 @@ class _ProductosScreenState extends State<ProductosScreen> {
         ),
       ),
     );
-    _cargar();
   }
 
   Future<void> _abrirDetalle(Producto producto) async {
@@ -146,7 +178,6 @@ class _ProductosScreenState extends State<ProductosScreen> {
         ),
       ),
     );
-    _cargar();
   }
 
   @override
@@ -230,7 +261,8 @@ class _ProductosScreenState extends State<ProductosScreen> {
                     ),
                     const SizedBox(height: 14),
 
-                    // Botón Nuevo
+                    // Botón nuevo (solo admin)
+                    if (Permisos.instance.puedeEditarProductos)
                     Align(
                       alignment: Alignment.centerRight,
                       child: ElevatedButton.icon(
@@ -277,10 +309,12 @@ class _ProductosScreenState extends State<ProductosScreen> {
                         texto: 'Error al cargar productos: $_error',
                       )
                     else if (lista.isEmpty)
-                      const _MensajeEstado(
+                      _MensajeEstado(
                         icono: Icons.inventory_2_outlined,
-                        texto: 'No se encontraron productos.\n'
-                            'Toca "Nuevo" para registrar el primero.',
+                        texto: Permisos.instance.puedeEditarProductos
+                            ? 'No se encontraron productos.\n'
+                                'Toca "Nuevo" para registrar el primero.'
+                            : 'No se encontraron productos.',
                       )
                     else
                       Column(
@@ -427,16 +461,14 @@ class _TarjetaProducto extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2 y 4. Nuevo producto / Editar producto (mismo formulario)
-// ---------------------------------------------------------------------------
+// Formulario de producto (nuevo y editar)
 
 class ProductoFormScreen extends StatefulWidget {
-  /// Si es `null` el formulario crea un producto nuevo; si trae uno, lo edita.
+  // null = crear producto nuevo
   final Producto? producto;
   final ProductosService service;
 
-  /// Lista actual de productos, solo se usa para generar el siguiente código.
+  // Para generar el siguiente código
   final List<Producto> productos;
 
   const ProductoFormScreen({
@@ -457,7 +489,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
   late final TextEditingController _cantidadController;
   late final TextEditingController _stockMinimoController;
   late String _estado;
-  String? _sucursal; // nombre de la sucursal (viene de Firestore)
+  String? _sucursal; // nombre de la sucursal
   late List<Ingrediente> _ingredientes;
   bool _guardando = false;
 
@@ -511,7 +543,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
   double? _leerNumero(TextEditingController c) =>
       double.tryParse(c.text.trim().replaceAll(',', '.'));
 
-  /// Siguiente código libre (P001, P002...), igual que antes.
+  // Siguiente código libre
   String _generarCodigo() {
     int mayor = 0;
     for (final producto in widget.productos) {
@@ -553,8 +585,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           throw Exception('No se encontró el producto para actualizar');
         }
 
-        // Se guarda una copia y solo si Firestore responde bien se actualiza
-        // el objeto original (así la pantalla de detalle se refresca).
+        // Copia: se aplica si Firestore responde bien
         final actualizado = Producto(
           id: original.id,
           codigo: original.codigo,
@@ -568,6 +599,30 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           ingredientes: List.from(_ingredientes),
         );
         await widget.service.actualizarProducto(actualizado);
+
+        // Cambios para la auditoría
+        final cambios = <String>[
+          if (original.nombre != actualizado.nombre)
+            'Nombre: ${original.nombre} → ${actualizado.nombre}',
+          if (original.categoria != actualizado.categoria)
+            'Categoría: ${original.categoria} → ${actualizado.categoria}',
+          if (original.precio != actualizado.precio)
+            'Precio: ${original.precio} → ${actualizado.precio}',
+          if (original.cantidad != actualizado.cantidad)
+            'Cantidad: ${original.cantidad} → ${actualizado.cantidad}',
+          if (original.stockMinimo != actualizado.stockMinimo)
+            'Stock mínimo: ${original.stockMinimo} → ${actualizado.stockMinimo}',
+          if (original.estado != actualizado.estado)
+            'Estado: ${original.estado} → ${actualizado.estado}',
+          if (original.sucursal != actualizado.sucursal)
+            'Sucursal: ${original.sucursal} → ${actualizado.sucursal}',
+        ];
+        _auditarProducto(
+          TipoEvento.editar,
+          'Producto "${actualizado.nombre}" actualizado',
+          actualizado,
+          detalle: cambios.isEmpty ? null : cambios.join(' · '),
+        );
 
         original
           ..nombre = actualizado.nombre
@@ -591,6 +646,11 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           ingredientes: List.from(_ingredientes),
         );
         nuevo.id = await widget.service.agregarProducto(nuevo);
+        _auditarProducto(
+          TipoEvento.crear,
+          'Producto "${nuevo.nombre}" creado',
+          nuevo,
+        );
       }
 
       if (!mounted) return;
@@ -611,7 +671,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
     }
   }
 
-  // AÑADIR INGREDIENTE (se eligen de la materia prima activa)
+  // Agregar ingrediente
 
   void _agregarIngrediente() {
     MateriaPrima? materiaSeleccionada;
@@ -772,9 +832,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
     );
   }
 
-  /// Selector de sucursal alimentado por Firestore (`sucursales`, solo las
-  /// activas). Si el producto que se edita apunta a una sucursal que ya no
-  /// está activa, se conserva en la lista para no perder el dato.
+  // Selector de sucursal
   Widget _campoSucursal() {
     return StreamBuilder<List<Sucursal>>(
       stream: _sucursalesStream,
@@ -1092,9 +1150,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3. Información del producto (detalle + acciones Editar / Eliminar / Desactivar)
-// ---------------------------------------------------------------------------
+// Detalle de producto
 
 class DetalleProductoScreen extends StatefulWidget {
   final Producto producto;
@@ -1129,7 +1185,7 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
         ),
       ),
     );
-    // El formulario actualiza el objeto al guardar: solo se redibuja.
+    // El formulario ya actualizó el objeto
     if (mounted) setState(() {});
   }
 
@@ -1148,7 +1204,16 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
+      final estadoAnterior = _producto.estado;
       await widget.service.cambiarEstado(id, nuevoEstado);
+      _auditarProducto(
+        TipoEvento.editar,
+        nuevoEstado == 'Activo'
+            ? 'Producto "${_producto.nombre}" activado'
+            : 'Producto "${_producto.nombre}" desactivado',
+        _producto,
+        detalle: 'Estado: $estadoAnterior → $nuevoEstado',
+      );
       if (!mounted) return;
       setState(() {
         _producto.estado = nuevoEstado;
@@ -1214,6 +1279,11 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       await widget.service.eliminarProducto(id);
+      _auditarProducto(
+        TipoEvento.eliminar,
+        'Producto "${_producto.nombre}" eliminado',
+        _producto,
+      );
       if (!mounted) return;
       Navigator.pop(context);
       messenger.showSnackBar(
@@ -1358,6 +1428,8 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
                         ],
                       ),
               ),
+              // Solo el admin edita
+              if (Permisos.instance.puedeEditarProductos) ...[
               const SizedBox(height: 22),
 
               _tituloSeccion('Acciones'),
@@ -1395,6 +1467,7 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
                 color: _colorAcento,
                 onPressed: _procesando ? null : _cambiarEstado,
               ),
+              ],
             ],
           ),
         ),

@@ -8,12 +8,9 @@ import '../../Chino/modelos/materia_prima_modelo.dart';
 import '../../Chino/modelos/producto_modelo.dart';
 import '../modelos/sucursal_modelo.dart';
 import '../../Chino/modelos/venta_modelo.dart';
+import '../../Chino/controladores/permisos_service.dart';
 
-/// CRUD de la colección `sucursales` en Firestore.
-///
-/// Es el servicio que "alimenta" a los demás módulos: Materia Prima (y los
-/// que vengan) usan [streamSucursalesActivas] para llenar su selector de
-/// sucursal. Cada operación deja un registro en la bitácora `auditoria`.
+
 class SucursalesService {
   SucursalesService({
     FirebaseFirestore? firestore,
@@ -39,43 +36,40 @@ class SucursalesService {
     return 'Usuario del sistema';
   }
 
-  // ---------------------------------------------------------------- Lectura
 
-  /// Todas las sucursales (activas e inactivas), ordenadas por nombre.
+
+  // Todas las sucursales
   Stream<List<Sucursal>> streamSucursales() {
     return _coleccion.orderBy('nombre').snapshots().map(
           (snap) => snap.docs.map(Sucursal.fromDoc).toList(),
         );
   }
 
-  /// Solo las sucursales activas: es lo que deben usar los selectores de
-  /// otros módulos. (Se filtra en el cliente para no requerir un índice
-  /// compuesto en Firestore.)
+  // Sucursales activas
   Stream<List<Sucursal>> streamSucursalesActivas() {
     return streamSucursales().map(
       (lista) => lista.where((s) => s.activo).toList(),
     );
   }
 
-  /// Una sola sucursal en tiempo real. Emite `null` si fue eliminada.
+  // Una sucursal en vivo
   Stream<Sucursal?> streamSucursal(String id) {
     return _coleccion.doc(id).snapshots().map(
           (doc) => doc.exists ? Sucursal.fromDoc(doc) : null,
         );
   }
 
-  /// Cuántos productos tiene asignados una sucursal (por nombre).
+  // Contar productos
   Future<int> contarProductos(String nombreSucursal) =>
       _contar(_db.collection(kColeccionProductos)
           .where('sucursal', isEqualTo: nombreSucursal));
 
-  /// Cuántas materias primas tiene asignadas una sucursal (por nombre).
+  // Contar materias primas
   Future<int> contarMateriasPrimas(String nombreSucursal) =>
       _contar(_db.collection(kColeccionMateriaPrima)
           .where('sucursal', isEqualTo: nombreSucursal));
 
-  /// Cuántas ventas tiene una sucursal. Las ventas pueden guardar el nombre
-  /// como "Centro" o como "Sucursal Centro", así que se cuentan ambas formas.
+  // Contar ventas
   Future<int> contarVentas(String nombreSucursal) =>
       _contar(_db.collection(kColeccionVentas).where(
             'sucursal',
@@ -87,9 +81,8 @@ class SucursalesService {
     return r.count ?? 0;
   }
 
-  // ---------------------------------------------------------------- Escritura
 
-  /// Crea una sucursal con código autogenerado (S001, S002, ...).
+  // Crear sucursal
   Future<String> crear({
     required String nombre,
     required String encargado,
@@ -98,6 +91,7 @@ class SucursalesService {
     required int cantidadPersonal,
     required String estado,
   }) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'crear sucursales');
     nombre = nombre.trim();
     await _validarDuplicado(nombre);
 
@@ -130,8 +124,7 @@ class SucursalesService {
     return codigo;
   }
 
-  /// Guarda los cambios. Si cambia el nombre, actualiza también las materias
-  /// primas y productos que apuntaban a la sucursal con el nombre anterior.
+  // Actualizar sucursal
   Future<void> actualizar({
     required Sucursal original,
     required String nombre,
@@ -141,6 +134,7 @@ class SucursalesService {
     required int cantidadPersonal,
     required String estado,
   }) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'editar sucursales');
     nombre = nombre.trim();
     await _validarDuplicado(nombre, excluirId: original.id);
 
@@ -182,6 +176,7 @@ class SucursalesService {
   }
 
   Future<void> cambiarEstado(Sucursal sucursal, String nuevoEstado) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'cambiar el estado de sucursales');
     await _coleccion.doc(sucursal.id).update({
       'estado': nuevoEstado,
       'actualizadoEn': FieldValue.serverTimestamp(),
@@ -196,10 +191,9 @@ class SucursalesService {
     );
   }
 
-  /// Elimina la sucursal. Se bloquea si todavía tiene productos o materia
-  /// prima asignados, para no dejar documentos apuntando a una sucursal que
-  /// ya no existe (en ese caso conviene desactivarla).
+  // Eliminar sucursal (si no tiene datos)
   Future<void> eliminar(Sucursal sucursal) async {
+    Permisos.instance.exigir(Permisos.instance.esAdmin, 'eliminar sucursales');
     final productos = await contarProductos(sucursal.nombre);
     final materias = await contarMateriasPrimas(sucursal.nombre);
     if (productos > 0 || materias > 0) {
@@ -217,8 +211,6 @@ class SucursalesService {
       sucursal: sucursal,
     );
   }
-
-  // ---------------------------------------------------------------- Helpers
 
   Future<String> _siguienteCodigo() async {
     final snap = await _coleccion.get();
@@ -243,7 +235,7 @@ class SucursalesService {
     }
   }
 
-  /// La auditoría nunca debe impedir que la operación principal termine.
+  // Registrar auditoría sin bloquear
   Future<void> _registrarAuditoria({
     required TipoEvento tipo,
     required String descripcion,

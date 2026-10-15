@@ -1,40 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Nombre de la colección de Firestore para la materia prima / ingredientes.
+// Colección de materia prima
 const String kColeccionMateriaPrima = 'materia_prima';
 
-/// Unidades de medida disponibles en el formulario (puedes agregar más).
+// Unidades de medida
 const List<String> kUnidadesMedida = ['Kg', 'g', 'lb', 'lt', 'ml', 'Unidad'];
 
-/// Sucursales disponibles en el formulario. Cuando el módulo de Sucursales
-/// esté listo, esta lista se puede reemplazar por una lectura de Firestore.
+// Sucursales del formulario
 const List<String> kSucursalesMateriaPrima = ['Norte', 'Centro'];
 
-/// Estados posibles de una materia prima.
+// Estados
 const List<String> kEstadosMateriaPrima = ['Activo', 'Inactivo'];
 
-/// Categorías que se usan solo como filtros en el listado (chips).
+// Categorías para los filtros
 const List<String> kCategoriasMateriaPrima = ['Harinas', 'Lácteos', 'Líquidos'];
 
-/// Modelo de una materia prima (según el diagrama UML "Documento
-/// Materia_Prima" y el diseño de las 4 pantallas).
-///
-/// Documento en `materia_prima/{id}` (el id del documento es el mismo
-/// código, ej. "M001"):
-/// ```
-/// {
-///   "codigo": "M001",
-///   "nombre": "Harina de trigo",     // Nombre_Elemento
-///   "cantidad": 50.0,                // Cantidad (DOUBLE)
-///   "unidadMedida": "Kg",            // Unidad_Medida
-///   "sucursal": "Norte",             // Sucursal
-///   "estado": "Activo",              // Estado
-///   "actualizadoEn": <Timestamp>
-/// }
-/// ```
+
 class MateriaPrima {
   final String id; // id del documento en Firestore
-  final String codigo; // "M001" (el "Id" que se ve en Información de Materia)
+  final String codigo; // ej. M001
   final String nombre;
   final double cantidad;
   final String unidadMedida;
@@ -53,12 +37,11 @@ class MateriaPrima {
 
   bool get activo => estado == 'Activo';
 
-  /// "50.00 kg" (como se muestra en el listado y en el detalle).
+  // Cantidad con su unidad
   String get cantidadConUnidad =>
       '${cantidad.toStringAsFixed(2)} ${unidadMedida.toLowerCase()}';
 
-  /// Categoría deducida del nombre/unidad, solo para los chips del listado
-  /// (Harinas, Lácteos, Líquidos). No se guarda en Firestore.
+  // Categoría según nombre y unidad
   String get categoria {
     final n = nombre.toLowerCase();
     if (n.contains('harina') || n.contains('fécula') || n.contains('fecula')) {
@@ -76,6 +59,7 @@ class MateriaPrima {
     return 'Otros';
   }
 
+// Documento a objeto
   factory MateriaPrima.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
     return MateriaPrima(
@@ -89,6 +73,7 @@ class MateriaPrima {
     );
   }
 
+// Objeto a mapa
   Map<String, dynamic> toMap() => {
         'codigo': codigo,
         'nombre': nombre,

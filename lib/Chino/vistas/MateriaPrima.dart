@@ -5,8 +5,9 @@ import '../modelos/materia_prima_modelo.dart';
 import '../controladores/materia_prima_service.dart';
 import '../../Henry/modelos/sucursal_modelo.dart';
 import '../../Henry/controladores/sucursales_service.dart';
+import '../controladores/permisos_service.dart';
 
-// Mismos colores que usan Stock, Reportes y Auditoría.
+// Colores
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
@@ -14,7 +15,7 @@ const Color _colorBorde = Color(0xFFE8DFD8);
 const Color _fondoInput = Color(0xFFFCFAF7);
 const Color _verde = Color(0xFF1F7A3D);
 
-/// Convierte una excepción en un texto corto para mostrar en un SnackBar.
+// Error a texto corto
 String _mensajeError(Object e) => e
     .toString()
     .replaceFirst('Bad state: ', '')
@@ -38,10 +39,8 @@ InputDecoration _decoracionCampo({String? hint}) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 1. Lista de Materia Prima (pantalla principal del módulo, con menú lateral)
-// ---------------------------------------------------------------------------
 
+// Lista de materia prima
 class MateriaPrimaScreen extends StatefulWidget {
   const MateriaPrimaScreen({super.key});
 
@@ -186,7 +185,8 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
                     ),
                     const SizedBox(height: 14),
 
-                    // Botón Nuevo
+                    // Botón nuevo (solo admin)
+                    if (Permisos.instance.puedeEditarIngredientes)
                     Align(
                       alignment: Alignment.centerRight,
                       child: ElevatedButton.icon(
@@ -218,7 +218,7 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Lista en vivo desde Firestore
+                    // Lista en vivo
                     StreamBuilder<List<MateriaPrima>>(
                       stream: _service.streamMateriasPrimas(),
                       builder: (context, snapshot) {
@@ -242,10 +242,12 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
 
                         final lista = _filtrar(snapshot.data!);
                         if (lista.isEmpty) {
-                          return const _MensajeEstado(
+                          return _MensajeEstado(
                             icono: Icons.kitchen_outlined,
-                            texto: 'No se encontró materia prima.\n'
-                                'Toca "Nuevo" para registrar la primera.',
+                            texto: Permisos.instance.puedeEditarIngredientes
+                                ? 'No se encontró materia prima.\n'
+                                    'Toca "Nuevo" para registrar la primera.'
+                                : 'No se encontró materia prima.',
                           );
                         }
 
@@ -386,13 +388,10 @@ class _TarjetaMateriaPrima extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2 y 4. Nueva materia prima / Editar materia prima (mismo formulario)
-// ---------------------------------------------------------------------------
+// Formulario de materia prima (nueva y editar)
 
 class MateriaPrimaFormScreen extends StatefulWidget {
-  /// Si es `null` el formulario crea una materia prima nueva; si trae una,
-  /// la edita.
+  // null = crear una nueva
   final MateriaPrima? materia;
   final MateriaPrimaService service;
 
@@ -410,12 +409,11 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
   late final TextEditingController _nombreController;
   late final TextEditingController _cantidadController;
   late String _unidad;
-  String? _sucursal; // nombre de la sucursal (viene de Firestore)
+  String? _sucursal; // nombre de la sucursal
   late String _estado;
   bool _guardando = false;
 
-  // Las sucursales activas se leen en vivo de la colección `sucursales`
-  // (las que se cargan en el módulo de Sucursales).
+  // Sucursales activas en vivo
   final SucursalesService _sucursalesService = SucursalesService();
   late final Stream<List<Sucursal>> _sucursalesStream =
       _sucursalesService.streamSucursalesActivas();
@@ -435,8 +433,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
     _estado = _valorValido(m?.estado, kEstadosMateriaPrima);
   }
 
-  /// Evita que el Dropdown truene si un documento trae un valor que no está
-  /// en la lista (por ejemplo una sucursal nueva).
+  // Evita valores fuera de la lista
   String _valorValido(String? valor, List<String> opciones) {
     if (valor != null && opciones.contains(valor)) return valor;
     return opciones.first;
@@ -534,9 +531,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
     );
   }
 
-  /// Selector de sucursal alimentado por Firestore (`sucursales`, solo las
-  /// activas). Si la materia prima que se edita apunta a una sucursal que ya
-  /// no está activa, se conserva en la lista para no perder el dato.
+  // Selector de sucursal
   Widget _campoSucursal() {
     return StreamBuilder<List<Sucursal>>(
       stream: _sucursalesStream,
@@ -732,9 +727,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3. Información de Materia (detalle + acciones Editar / Eliminar / Desactivar)
-// ---------------------------------------------------------------------------
+// Detalle de materia prima
 
 class DetalleMateriaPrimaScreen extends StatefulWidget {
   final String id;
@@ -764,7 +757,6 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
         ),
       ),
     );
-    // No hace falta setState: el StreamBuilder se refresca solo.
   }
 
   Future<void> _cambiarEstado(MateriaPrima materia) async {
@@ -974,6 +966,8 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
               ],
             ),
           ),
+          // Solo el admin edita
+          if (Permisos.instance.puedeEditarIngredientes) ...[
           const SizedBox(height: 22),
 
           const Text(
@@ -1018,6 +1012,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
             color: _colorAcento,
             onPressed: _procesando ? null : () => _cambiarEstado(m),
           ),
+          ],
         ],
       ),
     );

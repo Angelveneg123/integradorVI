@@ -1,13 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Nombre de la colección de Firestore con las sucursales. Es la fuente de
-/// verdad: los demás módulos (Materia Prima, y los que vengan) leen de aquí
-/// el listado de sucursales.
+// Colección de sucursales
 const String kColeccionSucursales = 'sucursales';
 
-/// Texto para mostrar una sucursal en pantalla. Antepone la palabra
-/// "Sucursal" solo si el nombre no la trae ya (así "Norte" se ve como
-/// "Sucursal Norte" y "Sucursal norte" no se duplica).
+// Etiqueta de la sucursal
 String etiquetaSucursal(String nombre) {
   final n = nombre.trim();
   if (n.isEmpty) return n;
@@ -15,8 +11,7 @@ String etiquetaSucursal(String nombre) {
   return 'Sucursal $n';
 }
 
-/// Formas en que puede venir guardado el nombre de una sucursal en los
-/// documentos de `ventas` ("Norte", "Sucursal Norte" o el nombre tal cual).
+// Variantes del nombre
 List<String> variantesNombreSucursal(String nombre) {
   final n = nombre.trim();
   final sinPrefijo =
@@ -26,11 +21,10 @@ List<String> variantesNombreSucursal(String nombre) {
       .toList();
 }
 
-/// Estados posibles de una sucursal.
+// Estados
 const List<String> kEstadosSucursal = ['Activo', 'Inactivo'];
 
-/// Ciudades / locaciones disponibles en el formulario (edita la lista para
-/// agregar más).
+// Ciudades
 const List<String> kCiudadesSucursal = [
   'Managua',
   'León',
@@ -48,27 +42,7 @@ const List<String> kCiudadesSucursal = [
   'Bluefields',
 ];
 
-/// Modelo de una sucursal (UML "Documento Sucursal" y diseño de las 4
-/// pantallas).
-///
-/// Documento en `sucursales/{id}` (el id del documento es el mismo código,
-/// ej. "S001"):
-/// ```
-/// {
-///   "codigo": "S001",
-///   "nombre": "Norte",                    // Nombre_Sucursal
-///   "encargado": "Pancho Martínez",       // Encargado_Sucursal
-///   "ciudad": "La Trinidad",              // Ciudad
-///   "direccion": "Donde fue gasolinera...", // Direccion
-///   "cantidadPersonal": 9,                // Cantidad_de_personal
-///   "estado": "Activo",                   // Estado
-///   "actualizadoEn": <Timestamp>
-/// }
-/// ```
-///
-/// Los demás módulos guardan la sucursal como el **nombre** (ej. "Norte"),
-/// que es lo que ya usan Productos, Stock y Reportes. Por eso, al renombrar
-/// una sucursal el servicio actualiza también esos documentos.
+// Modelo de sucursal
 class Sucursal {
   final String id;
   final String codigo;
@@ -92,7 +66,7 @@ class Sucursal {
 
   bool get activo => estado == 'Activo';
 
-  /// Nombre listo para mostrar (sin duplicar la palabra "Sucursal").
+  // Nombre para mostrar
   String get etiqueta => etiquetaSucursal(nombre);
 
   factory Sucursal.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {

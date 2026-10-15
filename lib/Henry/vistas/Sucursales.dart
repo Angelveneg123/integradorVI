@@ -4,8 +4,9 @@ import 'package:flutter/services.dart';
 import '../../Chino/vistas/AppDrawer.dart';
 import '../modelos/sucursal_modelo.dart';
 import '../controladores/sucursales_service.dart';
+import '../../Chino/controladores/permisos_service.dart';
 
-// Mismos colores que usan Stock, Reportes, Auditoría y Materia Prima.
+// Colores
 const Color _textoOscuro = Color(0xFF5A3E36);
 const Color _textoClaro = Color(0xFF7A6B65);
 const Color _colorAcento = Color(0xFFA65021);
@@ -36,9 +37,7 @@ InputDecoration _decoracionCampo({String? hint}) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 1. Lista de Sucursales (pantalla principal del módulo, con menú lateral)
-// ---------------------------------------------------------------------------
+// Lista de sucursales
 
 class SucursalesScreen extends StatefulWidget {
   const SucursalesScreen({super.key});
@@ -91,6 +90,10 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Solo admin
+    if (!Permisos.instance.puedeVer(ModuloApp.sucursales)) {
+      return const AccesoRestringido(modulo: 'Sucursales');
+    }
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AppDrawer(moduloActual: ModuloApp.sucursales),
@@ -277,7 +280,7 @@ class _TarjetaSucursal extends StatelessWidget {
     required this.onTap,
   });
 
-  /// "4 productos · 2 ventas" (se consulta a Firestore por cada tarjeta).
+  // Conteos de la sucursal
   Future<String> _conteos() async {
     final r = await Future.wait([
       service.contarProductos(sucursal.nombre),
@@ -357,12 +360,10 @@ class _TarjetaSucursal extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2 y 4. Nueva sucursal / Editar sucursal (mismo formulario)
-// ---------------------------------------------------------------------------
+// Formulario de sucursal (nueva y editar)
 
 class SucursalFormScreen extends StatefulWidget {
-  /// Si es `null` crea una sucursal nueva; si trae una, la edita.
+  // null = crear sucursal nueva
   final Sucursal? sucursal;
   final SucursalesService service;
 
@@ -488,8 +489,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Si la sucursal editada tiene una ciudad que no está en la lista, se
-    // agrega para que el Dropdown no falle.
+    // Agrega la ciudad si no está en la lista
     final ciudades = [
       ...kCiudadesSucursal,
       if (_ciudad != null && !kCiudadesSucursal.contains(_ciudad)) _ciudad!,
@@ -661,9 +661,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3. Información de la sucursal (detalle + Editar / Eliminar / Desactivar)
-// ---------------------------------------------------------------------------
+// Detalle de sucursal
 
 class DetalleSucursalScreen extends StatefulWidget {
   final String id;

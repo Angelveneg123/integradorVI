@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'firebase_options.dart';
 import 'lobby.dart';
-import 'Chino/modelos/usuario_modelo.dart';
+import 'Chino/controladores/auditoria_service.dart';
+import 'Chino/controladores/apariencia_service.dart';
+import 'Chino/controladores/solicitudes_password_service.dart';
+import 'Chino/controladores/permisos_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +15,9 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Carga la apariencia guardada
+  Apariencia.instance.iniciar();
 
   runApp(const PanaderiaApp());
 }
@@ -22,14 +27,23 @@ class PanaderiaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Panadería Romero',
-      theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFFF9F6EF),
-        fontFamily: 'Roboto',
-      ),
-      home: const AuthGate(),
+    return ListenableBuilder(
+      listenable: Apariencia.instance,
+      builder: (context, _) {
+        final apariencia = Apariencia.instance;
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Panadería Romero',
+          theme: apariencia.tema,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: TextScaler.linear(apariencia.escalaTexto),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: const AuthGate(),
+        );
+      },
     );
   }
 }
@@ -63,23 +77,24 @@ class AuthGate extends StatelessWidget {
           }
 
           return _PerfilGate(
+            key: ValueKey(user.uid),
             user: user,
             nombreInicial: nombre,
           );
         }
 
+        // Sin sesión: limpia el perfil anterior
+        Permisos.instance.detener();
         return const LoginScreen();
       },
     );
   }
 }
 
-/// Revisa el perfil del usuario en Firestore (`usuarios/{uid}`): si la
-/// cuenta está inactiva o eliminada no deja entrar. Si no hay perfil (cuentas
-/// creadas a mano en la consola de Firebase) deja entrar, para no bloquear
-/// al administrador inicial.
-class _PerfilGate extends StatelessWidget {
+// Revisa el perfil antes de dejar entrar
+class _PerfilGate extends StatefulWidget {
   const _PerfilGate({
+    super.key,
     required this.user,
     required this.nombreInicial,
   });
@@ -88,14 +103,32 @@ class _PerfilGate extends StatelessWidget {
   final String nombreInicial;
 
   @override
+  State<_PerfilGate> createState() => _PerfilGateState();
+}
+
+class _PerfilGateState extends State<_PerfilGate> {
+  @override
+  void initState() {
+    super.initState();
+    Permisos.instance.iniciar(widget.user);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PerfilGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.user.uid != widget.user.uid) {
+      Permisos.instance.iniciar(widget.user);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection(kColeccionUsuarios)
-          .doc(user.uid)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return ListenableBuilder(
+      listenable: Permisos.instance,
+      builder: (context, _) {
+        final permisos = Permisos.instance;
+
+        if (!permisos.cargado) {
           return const Scaffold(
             body: Center(
               child: CircularProgressIndicator(),
@@ -103,20 +136,16 @@ class _PerfilGate extends StatelessWidget {
           );
         }
 
-        final data = snapshot.data?.data();
-        if (data != null) {
-          final estado = (data['estado'] ?? 'Activo') as String;
-          if (estado != 'Activo') {
-            return const _CuentaBloqueada();
-          }
-
-          final nombre = ((data['nombre'] ?? '') as String).trim();
-          if (nombre.isNotEmpty) {
-            return LobbyScreen(userName: nombre.split(' ').first);
-          }
+        if (!permisos.cuentaActiva) {
+          return const _CuentaBloqueada();
         }
 
-        return LobbyScreen(userName: nombreInicial);
+        final nombre = permisos.nombre;
+        if (nombre.isNotEmpty) {
+          return LobbyScreen(userName: nombre.split(' ').first);
+        }
+
+        return LobbyScreen(userName: widget.nombreInicial);
       },
     );
   }
@@ -226,6 +255,8 @@ class _LoginScreenState extends State<LoginScreen> {
         email: email,
         password: password,
       );
+      // Registra el ingreso en auditoría
+      AuditoriaService().registrarIngreso(correo: email);
     } on FirebaseAuthException catch (e) {
       String mensaje;
 
@@ -277,6 +308,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // Recuperar contraseña (avisa a los admins)
   Future<void> _recuperarPassword() async {
     final email = _emailController.text.trim();
 
@@ -286,34 +318,24 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return;
     }
+    if (!RegExp(r'^[^@\s/]+@[^@\s/]+\.[^@\s/]+$').hasMatch(email)) {
+      _mostrarMensaje('El correo electrónico no es válido.');
+      return;
+    }
 
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(
-        email: email,
-      );
+      await SolicitudesPasswordService().solicitar(email);
 
       if (!mounted) return;
 
       _mostrarMensaje(
-        'Se envió un correo para recuperar tu contraseña.',
+        'Solicitud enviada. Un administrador te enviará un correo para '
+        'restablecer tu contraseña.',
       );
-    } on FirebaseAuthException catch (e) {
-      String mensaje;
-
-      switch (e.code) {
-        case 'invalid-email':
-          mensaje = 'El correo electrónico no es válido.';
-          break;
-
-        case 'user-not-found':
-          mensaje = 'No existe un usuario con ese correo.';
-          break;
-
-        default:
-          mensaje = 'No se pudo enviar el correo.';
-      }
-
-      _mostrarMensaje(mensaje);
+    } catch (e) {
+      _mostrarMensaje(
+        e.toString().replaceFirst('Bad state: ', ''),
+      );
     }
   }
 
