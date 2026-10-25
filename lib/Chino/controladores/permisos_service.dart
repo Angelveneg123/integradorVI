@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import '../modelos/usuario_modelo.dart';
 import '../vistas/AppDrawer.dart' show ModuloApp;
 
-// Permisos por rol (admin y vendedor)
+// Permisos por rol (administrador, encargado y vendedor)
 class Permisos extends ChangeNotifier {
   Permisos._();
 
@@ -37,7 +37,8 @@ class Permisos extends ChangeNotifier {
 
   // Sin perfil cuenta como admin
   bool get esAdmin => _perfil == null || _perfil!.esAdministrador;
-  bool get esVendedor => !esAdmin;
+  bool get esEncargado => !esAdmin && (_perfil?.esEncargado ?? false);
+  bool get esVendedor => !esAdmin && !esEncargado;
 
   // Escuchar el perfil del usuario
   void iniciar(User user) {
@@ -141,8 +142,15 @@ class Permisos extends ChangeNotifier {
   // Registrar ventas
   bool get puedeVender => cuentaActiva;
 
-  // Reportes limitados a su sucursal
+  // Reportes limitados a su sucursal (encargado y vendedor)
   bool get reportesLimitados => !esAdmin;
+
+  // Solo el vendedor ve únicamente sus propias ventas en reportes
+  bool get soloMisVentas => esVendedor;
+
+  // Editar, desactivar o eliminar una venta: admin, o encargado en su sucursal
+  bool puedeGestionarVenta(String sucursalDeLaVenta) =>
+      esAdmin || (esEncargado && esMiSucursal(sucursalDeLaVenta));
 
   // Reportes globales
   bool get puedeVerReportesGlobales => esAdmin;

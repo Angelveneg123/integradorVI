@@ -1,3 +1,17 @@
+// Categorías predeterminadas de la panadería y repostería
+const List<String> kCategoriasProducto = [
+  'Pan',
+  'Pan dulce',
+  'Pan integral',
+  'Repostería',
+  'Pasteles',
+  'Galletas',
+  'Postres',
+  'Empanadas y salados',
+  'Bebidas',
+  'Otros',
+];
+
 // Producto del menú
 class Producto {
   String? id;
@@ -13,6 +27,8 @@ class Producto {
   String sucursal;
   // Receta del producto
   List<Ingrediente> ingredientes;
+  // Fecha de registro (los productos viejos pueden no tenerla)
+  DateTime? fecha;
 
   Producto({
     this.id,
@@ -25,6 +41,7 @@ class Producto {
     required this.estado,
     required this.sucursal,
     required this.ingredientes,
+    this.fecha,
   });
 }
 

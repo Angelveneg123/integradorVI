@@ -6,7 +6,9 @@ import '../../Chino/controladores/auditoria_service.dart';
 import '../../Chino/modelos/evento_auditoria_modelo.dart';
 import '../../Chino/modelos/materia_prima_modelo.dart';
 import '../../Chino/modelos/producto_modelo.dart';
+import '../../Chino/modelos/usuario_modelo.dart';
 import '../modelos/sucursal_modelo.dart';
+import 'codigos_sucursal.dart';
 import '../../Chino/modelos/venta_modelo.dart';
 import '../../Chino/controladores/permisos_service.dart';
 
@@ -90,10 +92,12 @@ class SucursalesService {
     required String direccion,
     required int cantidadPersonal,
     required String estado,
+    required String prefijo,
   }) async {
     Permisos.instance.exigir(Permisos.instance.esAdmin, 'crear sucursales');
     nombre = nombre.trim();
     await _validarDuplicado(nombre);
+    prefijo = await _validarPrefijo(prefijo);
 
     final codigo = await _siguienteCodigo();
     final ref = _coleccion.doc(codigo);
@@ -106,6 +110,7 @@ class SucursalesService {
       direccion: direccion.trim(),
       cantidadPersonal: cantidadPersonal,
       estado: estado,
+      prefijo: prefijo,
     );
 
     await _db.runTransaction((tx) async {
@@ -133,27 +138,35 @@ class SucursalesService {
     required String direccion,
     required int cantidadPersonal,
     required String estado,
+    required String prefijo,
   }) async {
     Permisos.instance.exigir(Permisos.instance.esAdmin, 'editar sucursales');
     nombre = nombre.trim();
     await _validarDuplicado(nombre, excluirId: original.id);
+    prefijo = await _validarPrefijo(prefijo, excluirId: original.id);
 
     final editada = Sucursal(
       id: original.id,
       codigo: original.codigo,
       nombre: nombre,
-      encargado: encargado.trim(),
+      // El encargado lo define el módulo Usuarios; aquí no se toca
+      encargado: original.encargado,
       ciudad: ciudad,
       direccion: direccion.trim(),
       cantidadPersonal: cantidadPersonal,
       estado: estado,
+      prefijo: prefijo,
     );
 
     final batch = _db.batch();
-    batch.update(_coleccion.doc(original.id), editada.toMap());
+    batch.update(_coleccion.doc(original.id), editada.toMap()..remove('encargado'));
 
     if (nombre != original.nombre) {
-      for (final coleccion in [kColeccionMateriaPrima, kColeccionProductos]) {
+      for (final coleccion in [
+        kColeccionMateriaPrima,
+        kColeccionProductos,
+        kColeccionUsuarios,
+      ]) {
         final snap = await _db
             .collection(coleccion)
             .where('sucursal', isEqualTo: original.nombre)
@@ -220,6 +233,26 @@ class SucursalesService {
       if (numero != null && numero > maximo) maximo = numero;
     }
     return 'S${(maximo + 1).toString().padLeft(3, '0')}';
+  }
+
+  // Prefijos de todas las sucursales (el guardado o el calculado)
+  Future<Map<String, String>> prefijosActuales() =>
+      CodigosSucursal.prefijosActuales(_db);
+
+  // El prefijo debe ser de 1 a 4 letras y no usarlo otra sucursal
+  Future<String> _validarPrefijo(String prefijo, {String? excluirId}) async {
+    final p = CodigosSucursal.limpiarPrefijo(prefijo);
+    if (!CodigosSucursal.prefijoValido(p)) {
+      throw StateError(
+        'El prefijo debe tener de 1 a ${CodigosSucursal.maxPrefijo} letras (ej. N, S, NE).',
+      );
+    }
+    final otros = await prefijosActuales();
+    otros.remove(excluirId);
+    if (otros.values.contains(p)) {
+      throw StateError('El prefijo "$p" ya lo usa otra sucursal.');
+    }
+    return p;
   }
 
   Future<void> _validarDuplicado(String nombre, {String? excluirId}) async {

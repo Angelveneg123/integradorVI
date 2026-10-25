@@ -7,15 +7,18 @@ import 'Reportes.dart';
 import 'MateriaPrima.dart';
 import 'Usuarios.dart';
 import 'Configuracion.dart';
+import 'SolicitudesPassword.dart' show CampanaSolicitudes;
 import '../controladores/permisos_service.dart';
 import '../../Henry/vistas/Sucursales.dart';
 import '../../Dennis/vistas/productos.dart';
 import '../../Mauricio/vistas/crud_ventas.dart' show VentasScreen;
+import '../controladores/apariencia_service.dart';
 
 // Colores del lobby
-const Color _burgundy = Color(0xFF8D141B);
-const Color _burgundyDark = Color(0xFF681015);
-const Color _textDark = Color(0xFF2E2927);
+Color get _burgundy => Apariencia.instance.acento;
+Color get _burgundyDark => Apariencia.instance.fondoMenu;
+
+Color get _textDark => Apariencia.instance.textoPrincipal;
 
 // Cerrar sesión
 Future<void> cerrarSesion(BuildContext context) async {
@@ -131,14 +134,14 @@ class AppDrawer extends StatelessWidget {
                 children: [
                   CircleAvatar(
                     radius: 24,
-                    backgroundColor: Colors.white,
+                    backgroundColor: Apariencia.instance.superficie,
                     child: ClipOval(
                       child: Image.asset(
-                        'assets/images/romero.jpeg',
+                        'assets/images/romero.png',
                         width: 48,
                         height: 48,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => const Icon(
+                        errorBuilder: (context, error, stackTrace) => Icon(
                           Icons.bakery_dining,
                           color: _burgundy,
                         ),
@@ -383,10 +386,10 @@ class ChinoTopBar extends StatelessWidget {
     return Container(
       height: 68,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: Apariencia.instance.superficie,
         border: Border(
-          bottom: BorderSide(color: Color(0xFFECE5E0)),
+          bottom: BorderSide(color: Apariencia.instance.bordeSuave),
         ),
       ),
       child: Row(
@@ -395,13 +398,13 @@ class ChinoTopBar extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: const Color(0xFFF5EEEE),
+              color: Apariencia.instance.acentoSuave,
               borderRadius: BorderRadius.circular(11),
             ),
             child: IconButton(
               padding: EdgeInsets.zero,
               onPressed: () => scaffoldKey.currentState?.openDrawer(),
-              icon: const Icon(
+              icon: Icon(
                 Icons.menu_rounded,
                 color: _burgundy,
                 size: 24,
@@ -411,14 +414,14 @@ class ChinoTopBar extends StatelessWidget {
           const SizedBox(width: 10),
           CircleAvatar(
             radius: 19,
-            backgroundColor: Colors.white,
+            backgroundColor: Apariencia.instance.superficie,
             child: ClipOval(
               child: Image.asset(
-                'assets/images/romero.jpeg',
+                'assets/images/romero.png',
                 width: 38,
                 height: 38,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const Icon(
+                errorBuilder: (context, error, stackTrace) => Icon(
                   Icons.bakery_dining,
                   color: _burgundy,
                   size: 20,
@@ -432,7 +435,7 @@ class ChinoTopBar extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'PANADERÍA ROMERO',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -447,28 +450,166 @@ class ChinoTopBar extends StatelessWidget {
                   subtitulo,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 9,
-                    color: Colors.black54,
+                    color: Apariencia.instance.textoClaro,
                   ),
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: () {},
-            constraints: const BoxConstraints(
+          // Campana: solo la ve el admin
+          const CampanaSolicitudes(
+            iconSize: 21,
+            constraints: BoxConstraints(
               minWidth: 38,
               minHeight: 38,
             ),
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-              size: 21,
-              color: _textDark,
-            ),
           ),
+          const SizedBox(width: 4),
+          // Círculo de la cuenta (igual que en el lobby)
+          const MenuCuentaModulo(),
         ],
       ),
+    );
+  }
+}
+
+// Círculo con la inicial: abre un menú con los datos de la cuenta
+class MenuCuentaModulo extends StatelessWidget {
+  const MenuCuentaModulo({super.key});
+
+  static String _rol() {
+    final p = Permisos.instance;
+    if (p.esAdmin) return 'Administrador';
+    return p.esEncargado ? 'Encargado' : 'Vendedor';
+  }
+
+  // Mismo nombre que se muestra en el lobby (primer nombre)
+  static String _nombre() {
+    final p = Permisos.instance;
+    if (p.nombre.isNotEmpty) return p.nombre.split(' ').first;
+    final user = FirebaseAuth.instance.currentUser;
+    final display = user?.displayName?.trim() ?? '';
+    if (display.isNotEmpty) return display;
+    final correo = user?.email ?? '';
+    return correo.isNotEmpty ? correo.split('@').first : 'Usuario';
+  }
+
+  static String _iniciales(String valor) {
+    final partes = valor
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (partes.isEmpty) return 'U';
+    return partes.take(2).map((e) => e[0].toUpperCase()).join();
+  }
+
+  void _abrirConfiguracion(BuildContext context) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const ConfiguracionScreen()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Permisos.instance,
+      builder: (context, _) {
+        final p = Permisos.instance;
+        final nombre = _nombre();
+        final detalle = [
+          _rol(),
+          if (p.sucursal.isNotEmpty) p.sucursal,
+        ].join(' · ');
+
+        return PopupMenuButton<String>(
+          tooltip: 'Mi cuenta',
+          padding: EdgeInsets.zero,
+          offset: const Offset(0, 46),
+          color: Apariencia.instance.superficie,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          onSelected: (valor) {
+            if (valor == 'config') {
+              _abrirConfiguracion(context);
+            } else if (valor == 'salir') {
+              cerrarSesion(context);
+            }
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem<String>(
+              enabled: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    nombre,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: _textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    detalle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Apariencia.instance.textoClaro,
+                    ),
+                  ),
+                  if (p.correo.isNotEmpty)
+                    Text(
+                      p.correo,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Apariencia.instance.hint,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'config',
+              child: Row(
+                children: [
+                  Icon(Icons.settings_outlined, size: 19),
+                  SizedBox(width: 10),
+                  Text('Configuración'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'salir',
+              child: Row(
+                children: [
+                  Icon(Icons.logout, size: 19),
+                  SizedBox(width: 10),
+                  Text('Cerrar sesión'),
+                ],
+              ),
+            ),
+          ],
+          child: CircleAvatar(
+            radius: 18,
+            backgroundColor: _burgundy,
+            child: Text(
+              _iniciales(nombre),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

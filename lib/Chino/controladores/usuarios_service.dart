@@ -4,7 +4,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import 'auditoria_service.dart';
+import '../../Henry/controladores/codigos_sucursal.dart';
 import '../modelos/evento_auditoria_modelo.dart';
+import '../../Henry/modelos/sucursal_modelo.dart' show kColeccionSucursales;
 import '../modelos/usuario_modelo.dart';
 import 'permisos_service.dart';
 
@@ -77,6 +79,18 @@ class UsuariosService {
     Permisos.instance.exigir(Permisos.instance.esAdmin, 'crear usuarios');
     nombre = nombre.trim();
     correo = correo.trim().toLowerCase();
+
+    // Un solo encargado activo por sucursal (se valida antes de crear la cuenta)
+    await _validarEncargadoUnico(Usuario(
+      id: '',
+      codigo: '',
+      nombre: nombre,
+      correo: correo,
+      telefono: '',
+      rol: rol,
+      sucursal: sucursal,
+      estado: estado,
+    ));
     // Authentication valida si el correo ya existe
 
     final uid = await _crearCuentaAuth(
@@ -85,7 +99,7 @@ class UsuariosService {
       password: password,
     );
 
-    final codigo = await _siguienteCodigo();
+    final codigo = await _siguienteCodigo(sucursal);
     final nuevo = Usuario(
       id: uid,
       codigo: codigo,
@@ -108,6 +122,8 @@ class UsuariosService {
         'perfil ($e). Revisa las reglas de Firestore.',
       );
     }
+
+    await _sincronizarEncargado(despues: nuevo);
 
     await _registrarAuditoria(
       tipo: TipoEvento.crear,
@@ -141,7 +157,9 @@ class UsuariosService {
       sucursal: sucursal,
       estado: estado,
     );
+    await _validarEncargadoUnico(editado);
     await _coleccion.doc(original.id).update(editado.toMap());
+    await _sincronizarEncargado(antes: original, despues: editado);
 
     await _registrarAuditoria(
       tipo: TipoEvento.editar,
@@ -156,10 +174,13 @@ class UsuariosService {
       throw StateError('No puedes desactivar tu propia cuenta.');
     }
 
+    final despues = _conEstado(usuario, nuevoEstado);
+    await _validarEncargadoUnico(despues);
     await _coleccion.doc(usuario.id).update({
       'estado': nuevoEstado,
       'actualizadoEn': FieldValue.serverTimestamp(),
     });
+    await _sincronizarEncargado(antes: usuario, despues: despues);
 
     await _registrarAuditoria(
       tipo: TipoEvento.editar,
@@ -207,12 +228,84 @@ class UsuariosService {
       'estado': kEstadoEliminado,
       'actualizadoEn': FieldValue.serverTimestamp(),
     });
+    await _sincronizarEncargado(
+      antes: usuario,
+      despues: _conEstado(usuario, kEstadoEliminado),
+    );
 
     await _registrarAuditoria(
       tipo: TipoEvento.eliminar,
       descripcion: 'Se eliminó al usuario "${usuario.nombre}"',
       usuario: usuario,
     );
+  }
+
+  // ---------- Encargado único por sucursal ----------
+
+  CollectionReference<Map<String, dynamic>> get _sucursales =>
+      _db.collection(kColeccionSucursales);
+
+  Usuario _conEstado(Usuario u, String estado) => Usuario(
+        id: u.id,
+        codigo: u.codigo,
+        nombre: u.nombre,
+        correo: u.correo,
+        telefono: u.telefono,
+        rol: u.rol,
+        sucursal: u.sucursal,
+        estado: estado,
+      );
+
+  bool _esEncargadoActivo(Usuario u) =>
+      u.esEncargado && u.activo && u.sucursal.trim().isNotEmpty;
+
+  // Falla si la sucursal ya tiene otro encargado activo
+  Future<void> _validarEncargadoUnico(Usuario nuevo) async {
+    if (!_esEncargadoActivo(nuevo)) return;
+    final snap =
+        await _coleccion.where('sucursal', isEqualTo: nuevo.sucursal).get();
+    for (final doc in snap.docs) {
+      if (doc.id == nuevo.id) continue;
+      final otro = Usuario.fromDoc(doc);
+      if (_esEncargadoActivo(otro)) {
+        throw StateError(
+          'La sucursal "${nuevo.sucursal}" ya tiene como encargado a '
+          '"${otro.nombre}". Cámbiale el rol o desactívalo antes de '
+          'asignar a otro.',
+        );
+      }
+    }
+  }
+
+  // Refleja el encargado en el documento de la sucursal
+  Future<void> _sincronizarEncargado({
+    Usuario? antes,
+    required Usuario despues,
+  }) async {
+    if (antes != null &&
+        _esEncargadoActivo(antes) &&
+        (!_esEncargadoActivo(despues) || antes.sucursal != despues.sucursal)) {
+      await _fijarEncargadoSucursal(antes.sucursal, '', soloSi: antes.nombre);
+    }
+    if (_esEncargadoActivo(despues)) {
+      await _fijarEncargadoSucursal(despues.sucursal, despues.nombre);
+    }
+  }
+
+  Future<void> _fijarEncargadoSucursal(
+    String sucursal,
+    String encargado, {
+    String? soloSi,
+  }) async {
+    final snap =
+        await _sucursales.where('nombre', isEqualTo: sucursal).limit(1).get();
+    if (snap.docs.isEmpty) return;
+    final doc = snap.docs.first;
+    if (soloSi != null && (doc.data()['encargado'] ?? '') != soloSi) return;
+    await doc.reference.update({
+      'encargado': encargado,
+      'actualizadoEn': FieldValue.serverTimestamp(),
+    });
   }
 
   // Crear cuenta sin cerrar la sesión del admin
@@ -258,15 +351,16 @@ class UsuariosService {
     }
   }
 
-  Future<String> _siguienteCodigo() async {
-    final snap = await _coleccion.get();
-    var maximo = 0;
-    for (final doc in snap.docs) {
-      final codigo = (doc.data()['codigo'] ?? '') as String;
-      final numero = int.tryParse(codigo.replaceAll(RegExp(r'[^0-9]'), ''));
-      if (numero != null && numero > maximo) maximo = numero;
-    }
-    return 'U${(maximo + 1).toString().padLeft(3, '0')}';
+  // Código con el prefijo de la sucursal del usuario (N001, S001...).
+  // Sin sucursal (p. ej. un administrador general) usa U.
+  Future<String> _siguienteCodigo(String sucursal) async {
+    final prefijo = await CodigosSucursal.prefijoDe(_db, sucursal) ?? 'U';
+    return CodigosSucursal.reservar(
+      db: _db,
+      coleccion: kColeccionUsuarios,
+      campo: 'codigo',
+      prefijo: prefijo,
+    );
   }
 
   // Registrar auditoría sin bloquear

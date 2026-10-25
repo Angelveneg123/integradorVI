@@ -7,11 +7,12 @@ import '../controladores/solicitudes_password_service.dart';
 import '../controladores/usuarios_service.dart';
 import '../modelos/usuario_modelo.dart';
 import '../controladores/permisos_service.dart';
+import '../controladores/apariencia_service.dart';
 
-const Color _colorAcento = Color(0xFFA65021);
-const Color _fondo = Color(0xFFFAF6EE);
-const Color _textoOscuro = Color(0xFF5A3E36);
-const Color _textoClaro = Color(0xFF7A6B65);
+Color get _colorAcento => Apariencia.instance.acento;
+Color get _fondo => Apariencia.instance.fondo;
+Color get _textoOscuro => Apariencia.instance.textoOscuro;
+Color get _textoClaro => Apariencia.instance.textoClaro;
 const Color _rojo = Color(0xFF8D141B);
 
 // Campana de solicitudes
@@ -37,25 +38,21 @@ class _CampanaSolicitudesState extends State<CampanaSolicitudes> {
         .snapshots();
   }();
 
-  Widget get _campanaSimple => IconButton(
-        onPressed: () {},
-        constraints: widget.constraints,
-        icon: Icon(Icons.notifications_none_rounded, size: widget.iconSize),
-      );
-
   @override
   Widget build(BuildContext context) {
+    // Sin sesión no se muestra
     final perfil = _perfil;
-    if (perfil == null) return _campanaSimple;
+    if (perfil == null) return const SizedBox.shrink();
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: perfil,
       builder: (context, snapPerfil) {
         final data = snapPerfil.data?.data();
         final esAdmin = data != null &&
-            data['rol'] == 'Administrador' &&
+            normalizarRol(data['rol']) == 'Administrador' &&
             (data['estado'] ?? 'Activo') == 'Activo';
-        if (!esAdmin) return _campanaSimple;
+        // Solo el administrador ve la campana
+        if (!esAdmin) return const SizedBox.shrink();
 
         return StreamBuilder<int>(
           stream: _cantidad,
@@ -114,6 +111,7 @@ class _SolicitudesPasswordScreenState extends State<SolicitudesPasswordScreen> {
     Future<void> Function() accion,
     String exito,
   ) async {
+    if (_procesando.contains(s.id)) return; // ignora toques repetidos
     setState(() => _procesando.add(s.id));
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -164,7 +162,7 @@ class _SolicitudesPasswordScreenState extends State<SolicitudesPasswordScreen> {
       backgroundColor: _fondo,
       appBar: AppBar(
         title: const Text('Solicitudes de contraseña'),
-        backgroundColor: Colors.white,
+        backgroundColor: Apariencia.instance.superficie,
         foregroundColor: _textoOscuro,
         elevation: 0,
       ),
@@ -248,16 +246,16 @@ class _TarjetaSolicitud extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Apariencia.instance.superficie,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFEEE7E2)),
+        border: Border.all(color: Apariencia.instance.bordeSuave),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             solicitud.correo,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,
               color: _textoOscuro,
@@ -266,13 +264,13 @@ class _TarjetaSolicitud extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'Solicitada: $fecha',
-            style: const TextStyle(fontSize: 12, color: _textoClaro),
+            style: TextStyle(fontSize: 12, color: _textoClaro),
           ),
           const SizedBox(height: 8),
           if (usuario != null)
             Text(
               'Usuario: ${usuario!.nombre} (${usuario!.rol})',
-              style: const TextStyle(fontSize: 12, color: _textoOscuro),
+              style: TextStyle(fontSize: 12, color: _textoOscuro),
             )
           else if (verificado)
             const Text(
@@ -328,7 +326,7 @@ class _Mensaje extends StatelessWidget {
             Text(
               texto,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _textoClaro),
+              style: TextStyle(color: _textoClaro),
             ),
           ],
         ),

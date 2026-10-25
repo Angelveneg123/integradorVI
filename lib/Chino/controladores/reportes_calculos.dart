@@ -36,11 +36,13 @@ class LineaVenta {
   final DateTime fecha;
   final String sucursal;
   final String estado;
-  final String metodoPago;
   final String producto;
   final String categoria;
   final double cantidad;
   final double subtotal;
+  final double precioUnitario;
+  final String cliente;
+  final String vendedor;
 
   // Venta sin detalle
   final bool sinDetalle;
@@ -51,11 +53,13 @@ class LineaVenta {
     required this.fecha,
     required this.sucursal,
     required this.estado,
-    required this.metodoPago,
     required this.producto,
     required this.categoria,
     required this.cantidad,
     required this.subtotal,
+    this.precioUnitario = 0,
+    this.cliente = '',
+    this.vendedor = '',
     this.sinDetalle = false,
   });
 }
@@ -66,6 +70,7 @@ class _Acum {
   double cantidad = 0;
   double importe = 0;
   String extra = '';
+  final List<LineaVenta> lineas = [];
   _Acum(this.etiqueta);
 }
 
@@ -114,7 +119,6 @@ class ReportesCalculos {
 
     final fSuc = f.activo(tipo, FiltroReporte.sucursal);
     final fEst = f.activo(tipo, FiltroReporte.estado);
-    final fMet = f.activo(tipo, FiltroReporte.metodoPago);
     final fProd = f.activo(tipo, FiltroReporte.producto);
     final fCat = f.activo(tipo, FiltroReporte.categoria);
     final usaFechas = tipo.usa(FiltroReporte.fechas);
@@ -126,7 +130,8 @@ class ReportesCalculos {
     for (final v in d.ventas) {
       if (fSuc && !mismaSucursal(v.sucursal, f.sucursal)) continue;
       if (fEst && norm(v.estado) != norm(f.estado)) continue;
-      if (fMet && norm(v.metodoPago) != norm(f.metodoPago)) continue;
+      // Las ventas anuladas no cuentan, salvo que se filtre por ese estado
+      if (!fEst && norm(v.estado) == 'inactivo') continue;
       if (usaFechas) {
         if (!v.fechaValida) {
           sinFecha++;
@@ -142,9 +147,10 @@ class ReportesCalculos {
         if (fProd || fCat) continue;
         lineas.add(LineaVenta(
           ventaId: v.id, codigoVenta: codigo, fecha: v.fecha,
-          sucursal: v.sucursal, estado: v.estado, metodoPago: v.metodoPago,
+          sucursal: v.sucursal, estado: v.estado,
           producto: '(sin detalle)', categoria: sinCategoria,
           cantidad: 0, subtotal: r2(v.total), sinDetalle: true,
+          cliente: v.cliente, vendedor: v.vendedorNombre,
         ));
         continue;
       }
@@ -160,9 +166,11 @@ class ReportesCalculos {
         final sub = r2(i.subtotal);
         lineas.add(LineaVenta(
           ventaId: v.id, codigoVenta: codigo, fecha: v.fecha,
-          sucursal: v.sucursal, estado: v.estado, metodoPago: v.metodoPago,
+          sucursal: v.sucursal, estado: v.estado,
           producto: i.nombre.trim().isEmpty ? '(sin nombre)' : i.nombre.trim(),
           categoria: categoria, cantidad: i.cantidad, subtotal: sub,
+          precioUnitario: i.precioUnitario,
+          cliente: v.cliente, vendedor: v.vendedorNombre,
         ));
         agregadas++;
         sumaLineas += sub;
@@ -187,8 +195,6 @@ class ReportesCalculos {
         return _ventasPorPeriodo(tipo, f, d);
       case TipoReporte.ventasPorSucursal:
         return _ventasPorSucursal(tipo, f, d);
-      case TipoReporte.ventasPorMetodoPago:
-        return _ventasPorMetodo(tipo, f, d);
       case TipoReporte.ventasPorProducto:
       case TipoReporte.productosMasVendidos:
       case TipoReporte.productosMenosVendidos:
@@ -225,6 +231,7 @@ class ReportesCalculos {
     List<ColumnaReporte> columnas,
     List<List<Object?>> filas, {
     List<Object?>? totales,
+    List<DetalleReporte?> detalles = const [],
     List<Indicador> resumen = const [],
     List<String> advertencias = const [],
   }) {
@@ -237,6 +244,7 @@ class ReportesCalculos {
       columnas: columnas,
       filas: filas,
       totales: filas.isEmpty ? null : totales,
+      detalles: filas.isEmpty ? const [] : detalles,
       resumen: filas.isEmpty ? const [] : resumen,
       filtrosAplicados: f.descripcion(tipo),
       advertencias: adv,
@@ -254,6 +262,172 @@ class ReportesCalculos {
               'el reporte usa la suma de los productos.',
       ];
 
+  // Detalle: cada venta con sus productos
+  static DetalleReporte? _detalleVentas(List<LineaVenta> lineas, String titulo) {
+    if (lineas.isEmpty) return null;
+    final porVenta = <String, List<LineaVenta>>{};
+    for (final l in lineas) {
+      porVenta.putIfAbsent(l.ventaId, () => []).add(l);
+    }
+    final ventas = porVenta.values.toList()
+      ..sort((a, b) {
+        final c = a.first.fecha.compareTo(b.first.fecha);
+        return c != 0 ? c : a.first.codigoVenta.compareTo(b.first.codigoVenta);
+      });
+
+    final filas = <List<Object?>>[];
+    final subtotales = <int>{};
+    var cantTotal = 0.0;
+    var impTotal = 0.0;
+    for (final g in ventas) {
+      final h = g.first;
+      var cant = 0.0;
+      var imp = 0.0;
+      for (var i = 0; i < g.length; i++) {
+        final l = g[i];
+        cant += l.cantidad;
+        imp += l.subtotal;
+        filas.add([
+          i == 0 ? h.codigoVenta : '',
+          i == 0 ? _fHora.format(h.fecha) : '',
+          i == 0 ? _etiquetaSuc(h.sucursal) : '',
+          l.producto,
+          l.sinDetalle ? null : l.cantidad,
+          l.sinDetalle ? null : r2(l.precioUnitario),
+          l.subtotal,
+        ]);
+      }
+      cantTotal += cant;
+      impTotal += imp;
+      // Total de cada venta
+      subtotales.add(filas.length);
+      filas.add(['', '', '', 'Total de la venta', cant, null, r2(imp)]);
+    }
+    if (ventas.length > 1) {
+      subtotales.add(filas.length);
+      filas.add([
+        '', '', '', 'TOTAL (${ventas.length} ventas)', cantTotal, null, r2(impTotal),
+      ]);
+    }
+    return DetalleReporte(
+      titulo: titulo,
+      columnas: const [
+        ColumnaReporte('Venta'),
+        ColumnaReporte('Fecha y hora'),
+        ColumnaReporte('Sucursal'),
+        ColumnaReporte('Producto'),
+        ColumnaReporte('Cantidad', TipoColumna.cantidad),
+        ColumnaReporte('Precio (C\$)', TipoColumna.moneda),
+        ColumnaReporte('Subtotal (C\$)', TipoColumna.moneda),
+      ],
+      filas: filas,
+      subtotales: subtotales,
+    );
+  }
+
+  // Detalle: ventas donde se vendió un producto
+  static DetalleReporte? _detalleProducto(List<LineaVenta> lineas, String titulo) {
+    if (lineas.isEmpty) return null;
+    final ls = [...lineas]..sort((a, b) => a.fecha.compareTo(b.fecha));
+    var cant = 0.0;
+    var imp = 0.0;
+    final filas = <List<Object?>>[];
+    for (final l in ls) {
+      cant += l.cantidad;
+      imp += l.subtotal;
+      filas.add([
+        _fHora.format(l.fecha), l.codigoVenta, _etiquetaSuc(l.sucursal),
+        l.cantidad, r2(l.precioUnitario), l.subtotal,
+      ]);
+    }
+    final subtotales = <int>{};
+    if (ls.length > 1) {
+      subtotales.add(filas.length);
+      filas.add(['', '', 'Total', cant, null, r2(imp)]);
+    }
+    return DetalleReporte(
+      titulo: titulo,
+      columnas: const [
+        ColumnaReporte('Fecha y hora'),
+        ColumnaReporte('Venta'),
+        ColumnaReporte('Sucursal'),
+        ColumnaReporte('Cantidad', TipoColumna.cantidad),
+        ColumnaReporte('Precio (C\$)', TipoColumna.moneda),
+        ColumnaReporte('Subtotal (C\$)', TipoColumna.moneda),
+      ],
+      filas: filas,
+      subtotales: subtotales,
+    );
+  }
+
+  // Detalle: ingredientes de un producto
+  static DetalleReporte? _detalleIngredientes(Producto p) {
+    if (p.ingredientes.isEmpty) return null;
+    return DetalleReporte(
+      titulo: 'Ingredientes de ${p.nombre}',
+      columnas: const [ColumnaReporte('Ingrediente'), ColumnaReporte('Cantidad')],
+      filas: [
+        for (final i in p.ingredientes) [i.nombre, i.cantidad],
+      ],
+    );
+  }
+
+  // Detalle: lista de productos
+  static DetalleReporte? _detalleProductos(
+    List<Producto> lista,
+    String titulo, {
+    bool conValor = false,
+    String? dimTitulo,
+    String Function(Producto)? dim,
+  }) {
+    if (lista.isEmpty) return null;
+    final ps = [...lista]
+      ..sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+    final columnas = <ColumnaReporte>[
+      const ColumnaReporte('Código'),
+      const ColumnaReporte('Producto'),
+      if (dim != null)
+        ColumnaReporte(dimTitulo ?? '')
+      else ...const [ColumnaReporte('Categoría'), ColumnaReporte('Sucursal')],
+      const ColumnaReporte('Stock', TipoColumna.entero),
+      const ColumnaReporte('Stock mínimo', TipoColumna.entero),
+      if (conValor) ...const [
+        ColumnaReporte('Precio (C\$)', TipoColumna.moneda),
+        ColumnaReporte('Valor (C\$)', TipoColumna.moneda),
+      ],
+      const ColumnaReporte('Situación'),
+    ];
+    final filas = <List<Object?>>[
+      for (final p in ps)
+        [
+          p.codigo,
+          p.nombre,
+          if (dim != null) dim(p) else ...[_catDe(p), _etiquetaSuc(p.sucursal)],
+          p.stock,
+          p.stockMinimo,
+          if (conValor) ...[r2(p.precio), r2(p.stock > 0 ? p.stock * p.precio : 0.0)],
+          situacion(p),
+        ],
+    ];
+    final subtotales = <int>{};
+    if (conValor) {
+      final uni = ps.fold<int>(0, (s, p) => s + p.stock);
+      final val = r2(ps.fold<double>(0, (s, p) => s + (p.stock > 0 ? p.stock * p.precio : 0.0)));
+      subtotales.add(filas.length);
+      filas.add([
+        '', 'Total (${ps.length})',
+        if (dim != null) '' else ...['', ''],
+        uni, null, null, val, '',
+      ]);
+    }
+    return DetalleReporte(
+      titulo: titulo,
+      columnas: columnas,
+      filas: filas,
+      subtotales: subtotales,
+    );
+  }
+
   static TablaReporte _ventasDetalle(TipoReporte t, FiltrosReporte f, DatosReporte d) {
     final r = lineasDeVentas(d, f, t);
     final porVenta = <String, List<LineaVenta>>{};
@@ -267,6 +441,7 @@ class ReportesCalculos {
     var sumCant = 0.0;
     var sumImp = 0.0;
     final filas = <List<Object?>>[];
+    final detalles = <DetalleReporte?>[];
     for (final g in grupos) {
       final h = g.first;
       final prod = g.where((l) => !l.sinDetalle).length;
@@ -276,9 +451,37 @@ class ReportesCalculos {
       sumCant += cant;
       sumImp += imp;
       filas.add([
-        _fHora.format(h.fecha), h.codigoVenta, _etiquetaSuc(h.sucursal),
-        h.estado, prod, cant, imp,
+        _fHora.format(h.fecha),
+        h.codigoVenta,
+        _etiquetaSuc(h.sucursal),
+        h.vendedor.trim().isEmpty ? '-' : h.vendedor.trim(),
+        h.cliente.trim().isEmpty ? '-' : h.cliente.trim(),
+        h.estado,
+        prod,
+        cant,
+        imp,
       ]);
+      // Productos de la venta
+      detalles.add(DetalleReporte(
+        titulo: 'Productos de la venta ${h.codigoVenta}',
+        columnas: const [
+          ColumnaReporte('Producto'),
+          ColumnaReporte('Categoría'),
+          ColumnaReporte('Cantidad', TipoColumna.cantidad),
+          ColumnaReporte('Precio unitario (C\$)', TipoColumna.moneda),
+          ColumnaReporte('Subtotal (C\$)', TipoColumna.moneda),
+        ],
+        filas: [
+          for (final l in g)
+            [
+              l.producto,
+              l.categoria,
+              l.sinDetalle ? null : l.cantidad,
+              l.sinDetalle ? null : r2(l.precioUnitario),
+              l.subtotal,
+            ],
+        ],
+      ));
     }
     sumImp = r2(sumImp);
     final n = grupos.length;
@@ -288,15 +491,22 @@ class ReportesCalculos {
         ColumnaReporte('Fecha'),
         ColumnaReporte('Código'),
         ColumnaReporte('Sucursal'),
+        ColumnaReporte('Vendedor'),
+        ColumnaReporte('Cliente'),
         ColumnaReporte('Estado'),
         ColumnaReporte('Productos', TipoColumna.entero),
         ColumnaReporte('Unidades', TipoColumna.cantidad),
         ColumnaReporte('Importe (C\$)', TipoColumna.moneda),
       ],
       filas,
-      totales: ['TOTAL ($n ventas)', null, null, null, sumProd, sumCant, sumImp],
+      totales: [
+        'TOTAL ($n ventas)', null, null, null, null, null,
+        sumProd, sumCant, sumImp,
+      ],
+      detalles: detalles,
       resumen: [
         Indicador('Ventas', TablaReporte.formatearEntero(n)),
+        Indicador('Unidades', TablaReporte.formatearCantidad(sumCant)),
         Indicador('Importe total', TablaReporte.formatearMoneda(sumImp)),
         Indicador('Promedio por venta',
             TablaReporte.formatearMoneda(n == 0 ? 0 : r2(sumImp / n))),
@@ -336,7 +546,8 @@ class ReportesCalculos {
 
     final g = _agrupar(r.lineas, clave, etiqueta);
     final claves = g.keys.toList()..sort();
-    return _tablaAgrupadaVentas(t, f, d, r, 'Período', claves.map((k) => g[k]!).toList());
+    return _tablaAgrupadaVentas(t, f, d, r, 'Período', claves.map((k) => g[k]!).toList(),
+        conPorcentaje: true);
   }
 
   static TablaReporte _ventasPorSucursal(TipoReporte t, FiltrosReporte f, DatosReporte d) {
@@ -345,23 +556,6 @@ class ReportesCalculos {
         (l) => _etiquetaSuc(l.sucursal));
     final lista = g.values.toList()..sort((a, b) => b.importe.compareTo(a.importe));
     return _tablaAgrupadaVentas(t, f, d, r, 'Sucursal', lista, conPorcentaje: true);
-  }
-
-  static TablaReporte _ventasPorMetodo(TipoReporte t, FiltrosReporte f, DatosReporte d) {
-    final hay = d.ventas.any((v) => v.metodoPago.trim().isNotEmpty);
-    if (!hay) {
-      throw const ReporteNoDisponible(
-          'Las ventas registradas no guardan el método de pago, por lo que este '
-          'reporte no se puede generar. Cuando el módulo de Ventas registre ese '
-          'dato, el reporte estará disponible.');
-    }
-    final r = lineasDeVentas(d, f, t);
-    final g = _agrupar(
-        r.lineas,
-        (l) => norm(l.metodoPago),
-        (l) => l.metodoPago.trim().isEmpty ? 'Sin especificar' : l.metodoPago.trim());
-    final lista = g.values.toList()..sort((a, b) => b.importe.compareTo(a.importe));
-    return _tablaAgrupadaVentas(t, f, d, r, 'Método de pago', lista, conPorcentaje: true);
   }
 
   static Map<String, _Acum> _agrupar(
@@ -373,6 +567,7 @@ class ReportesCalculos {
     for (final l in lineas) {
       final a = m.putIfAbsent(clave(l), () => _Acum(etiqueta(l)));
       a.ventas.add(l.ventaId);
+      a.lineas.add(l);
       a.cantidad += l.cantidad;
       a.importe += l.subtotal;
     }
@@ -404,6 +599,13 @@ class ReportesCalculos {
           if (conPorcentaje) (totalImp == 0 ? 0.0 : a.importe / totalImp * 100),
         ],
     ];
+    // Cada grupo con sus ventas y productos
+    final detalles = <DetalleReporte?>[
+      for (final a in grupos) _detalleVentas(a.lineas, 'Ventas de ${a.etiqueta}'),
+    ];
+    final mejor = grupos.isEmpty
+        ? null
+        : grupos.reduce((a, b) => b.importe > a.importe ? b : a);
     return _tabla(
       t, f, d,
       [
@@ -423,9 +625,16 @@ class ReportesCalculos {
         totalVentas == 0 ? 0.0 : r2(totalImp / totalVentas),
         if (conPorcentaje) 100.0,
       ],
+      detalles: detalles,
       resumen: [
         Indicador('Ventas', TablaReporte.formatearEntero(totalVentas)),
+        Indicador('Unidades', TablaReporte.formatearCantidad(totalCant)),
         Indicador('Importe total', TablaReporte.formatearMoneda(totalImp)),
+        Indicador('Promedio por venta',
+            TablaReporte.formatearMoneda(totalVentas == 0 ? 0 : r2(totalImp / totalVentas))),
+        if (mejor != null)
+          Indicador('Mayor importe',
+              '${mejor.etiqueta}: ${TablaReporte.formatearMoneda(r2(mejor.importe))}'),
       ],
       advertencias: _advVentas(r),
     );
@@ -442,6 +651,8 @@ class ReportesCalculos {
       g[norm(l.producto)]!.extra = l.categoria;
     }
     var lista = g.values.toList();
+    // Importe de todos los productos (base del porcentaje)
+    final importeGeneral = r2(lista.fold<double>(0, (s, a) => s + a.importe));
 
     int porImporte(_Acum a, _Acum b) {
       final c = b.importe.compareTo(a.importe);
@@ -473,9 +684,15 @@ class ReportesCalculos {
           lista[i].etiqueta,
           lista[i].extra,
           lista[i].cantidad,
-          if (!ranking) lista[i].ventas.length,
+          lista[i].ventas.length,
+          lista[i].cantidad == 0 ? 0.0 : r2(lista[i].importe / lista[i].cantidad),
           r2(lista[i].importe),
+          importeGeneral == 0 ? 0.0 : lista[i].importe / importeGeneral * 100,
         ],
+    ];
+    // Cada producto con las ventas donde salió
+    final detalles = <DetalleReporte?>[
+      for (final a in lista) _detalleProducto(a.lineas, 'Ventas de ${a.etiqueta}'),
     ];
     final etiquetaTotal = ranking ? 'TOTAL (${lista.length} productos)' : 'TOTAL';
     return _tabla(
@@ -485,8 +702,10 @@ class ReportesCalculos {
         const ColumnaReporte('Producto'),
         const ColumnaReporte('Categoría'),
         const ColumnaReporte('Unidades', TipoColumna.cantidad),
-        if (!ranking) const ColumnaReporte('N° de ventas', TipoColumna.entero),
+        const ColumnaReporte('N° de ventas', TipoColumna.entero),
+        const ColumnaReporte('Precio promedio (C\$)', TipoColumna.moneda),
         const ColumnaReporte('Importe (C\$)', TipoColumna.moneda),
+        const ColumnaReporte('% del importe', TipoColumna.porcentaje),
       ],
       filas,
       totales: [
@@ -494,9 +713,12 @@ class ReportesCalculos {
         etiquetaTotal,
         null,
         totalCant,
-        if (!ranking) null,
+        null,
+        null,
         totalImp,
+        importeGeneral == 0 ? 0.0 : totalImp / importeGeneral * 100,
       ],
+      detalles: detalles,
       resumen: [
         Indicador(ranking ? 'Productos mostrados' : 'Productos vendidos',
             TablaReporte.formatearEntero(lista.length)),
@@ -536,6 +758,7 @@ class ReportesCalculos {
   static TablaReporte _catalogo(TipoReporte t, FiltrosReporte f, DatosReporte d) {
     final ps = _prodFiltrados(d, f, t);
     final activos = ps.where((p) => norm(p.estado) == 'activo').length;
+    final sinIng = ps.where((p) => p.ingredientes.isEmpty).length;
     return _tabla(
       t, f, d,
       const [
@@ -544,16 +767,23 @@ class ReportesCalculos {
         ColumnaReporte('Categoría'),
         ColumnaReporte('Sucursal'),
         ColumnaReporte('Precio (C\$)', TipoColumna.moneda),
+        ColumnaReporte('Stock', TipoColumna.entero),
         ColumnaReporte('Estado'),
+        ColumnaReporte('Ingredientes', TipoColumna.entero),
       ],
       [
         for (final p in ps)
-          [p.codigo, p.nombre, _catDe(p), _etiquetaSuc(p.sucursal), r2(p.precio), p.estado],
+          [
+            p.codigo, p.nombre, _catDe(p), _etiquetaSuc(p.sucursal),
+            r2(p.precio), p.stock, p.estado, p.ingredientes.length,
+          ],
       ],
+      detalles: [for (final p in ps) _detalleIngredientes(p)],
       resumen: [
         Indicador('Productos', TablaReporte.formatearEntero(ps.length)),
         Indicador('Activos', TablaReporte.formatearEntero(activos)),
         Indicador('Inactivos', TablaReporte.formatearEntero(ps.length - activos)),
+        Indicador('Sin ingredientes', TablaReporte.formatearEntero(sinIng)),
       ],
     );
   }
@@ -561,6 +791,7 @@ class ReportesCalculos {
   static TablaReporte _existencias(TipoReporte t, FiltrosReporte f, DatosReporte d) {
     final ps = _prodFiltrados(d, f, t);
     final unidades = ps.fold<int>(0, (s, p) => s + p.stock);
+    final valor = r2(ps.fold<double>(0, (s, p) => s + (p.stock > 0 ? p.stock * p.precio : 0.0)));
     final ago = ps.where((p) => p.stock <= 0).length;
     final bajo = ps.where((p) => p.stock > 0 && p.stock <= p.stockMinimo).length;
     return _tabla(
@@ -570,20 +801,32 @@ class ReportesCalculos {
         ColumnaReporte('Producto'),
         ColumnaReporte('Categoría'),
         ColumnaReporte('Sucursal'),
+        ColumnaReporte('Precio (C\$)', TipoColumna.moneda),
         ColumnaReporte('Stock', TipoColumna.entero),
         ColumnaReporte('Stock mínimo', TipoColumna.entero),
+        ColumnaReporte('Dif. vs mínimo', TipoColumna.entero),
+        ColumnaReporte('Valor en stock (C\$)', TipoColumna.moneda),
         ColumnaReporte('Situación'),
       ],
       [
         for (final p in ps)
-          [p.codigo, p.nombre, _catDe(p), _etiquetaSuc(p.sucursal), p.stock, p.stockMinimo, situacion(p)],
+          [
+            p.codigo, p.nombre, _catDe(p), _etiquetaSuc(p.sucursal), r2(p.precio),
+            p.stock, p.stockMinimo, p.stock - p.stockMinimo,
+            r2(p.stock > 0 ? p.stock * p.precio : 0.0), situacion(p),
+          ],
       ],
-      totales: ['TOTAL', null, null, null, unidades, null, null],
+      totales: ['TOTAL', null, null, null, null, unidades, null, null, valor, null],
+      detalles: [for (final p in ps) _detalleIngredientes(p)],
       resumen: [
         Indicador('Productos', TablaReporte.formatearEntero(ps.length)),
         Indicador('Unidades en stock', TablaReporte.formatearEntero(unidades)),
+        Indicador('Valor del inventario', TablaReporte.formatearMoneda(valor)),
         Indicador('Stock bajo', TablaReporte.formatearEntero(bajo)),
         Indicador('Agotados', TablaReporte.formatearEntero(ago)),
+      ],
+      advertencias: const [
+        'Valor en stock = stock x precio de venta. Dif. vs mínimo negativa = por debajo del mínimo.',
       ],
     );
   }
@@ -600,22 +843,36 @@ class ReportesCalculos {
       const [
         ColumnaReporte('Código'),
         ColumnaReporte('Producto'),
+        ColumnaReporte('Categoría'),
         ColumnaReporte('Sucursal'),
+        ColumnaReporte('Precio (C\$)', TipoColumna.moneda),
         ColumnaReporte('Stock', TipoColumna.entero),
         ColumnaReporte('Stock mínimo', TipoColumna.entero),
         ColumnaReporte('Faltante', TipoColumna.entero),
+        ColumnaReporte('% del mínimo', TipoColumna.porcentaje),
       ],
       [
         for (final p in ps)
-          [p.codigo, p.nombre, _etiquetaSuc(p.sucursal), p.stock, p.stockMinimo, p.stockMinimo - p.stock],
+          [
+            p.codigo, p.nombre, _catDe(p), _etiquetaSuc(p.sucursal), r2(p.precio),
+            p.stock, p.stockMinimo, p.stockMinimo - p.stock,
+            p.stockMinimo == 0 ? 0.0 : p.stock / p.stockMinimo * 100,
+          ],
       ],
-      totales: ['TOTAL', null, null, unidades, null, faltante],
-      resumen: [Indicador('Productos con stock bajo', TablaReporte.formatearEntero(ps.length))],
+      totales: ['TOTAL', null, null, null, null, unidades, null, faltante, null],
+      // Ingredientes para reponer
+      detalles: [for (final p in ps) _detalleIngredientes(p)],
+      resumen: [
+        Indicador('Productos con stock bajo', TablaReporte.formatearEntero(ps.length)),
+        Indicador('Unidades en stock', TablaReporte.formatearEntero(unidades)),
+        Indicador('Unidades faltantes', TablaReporte.formatearEntero(faltante)),
+      ],
     );
   }
 
   static TablaReporte _agotados(TipoReporte t, FiltrosReporte f, DatosReporte d) {
     final ps = _prodFiltrados(d, f, t).where((p) => p.stock <= 0).toList();
+    final activos = ps.where((p) => norm(p.estado) == 'activo').length;
     return _tabla(
       t, f, d,
       const [
@@ -623,14 +880,23 @@ class ReportesCalculos {
         ColumnaReporte('Producto'),
         ColumnaReporte('Categoría'),
         ColumnaReporte('Sucursal'),
+        ColumnaReporte('Precio (C\$)', TipoColumna.moneda),
         ColumnaReporte('Stock mínimo', TipoColumna.entero),
         ColumnaReporte('Estado'),
+        ColumnaReporte('Ingredientes', TipoColumna.entero),
       ],
       [
         for (final p in ps)
-          [p.codigo, p.nombre, _catDe(p), _etiquetaSuc(p.sucursal), p.stockMinimo, p.estado],
+          [
+            p.codigo, p.nombre, _catDe(p), _etiquetaSuc(p.sucursal), r2(p.precio),
+            p.stockMinimo, p.estado, p.ingredientes.length,
+          ],
       ],
-      resumen: [Indicador('Productos agotados', TablaReporte.formatearEntero(ps.length))],
+      detalles: [for (final p in ps) _detalleIngredientes(p)],
+      resumen: [
+        Indicador('Productos agotados', TablaReporte.formatearEntero(ps.length)),
+        Indicador('Agotados activos', TablaReporte.formatearEntero(activos)),
+      ],
     );
   }
 
@@ -641,7 +907,8 @@ class ReportesCalculos {
       g.putIfAbsent(_catDe(p), () => []).add(p);
     }
     final claves = g.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return _tablaInv(t, f, d, 'Categoría', claves, g);
+    return _tablaInv(t, f, d, 'Categoría', claves, g, 'Sucursal',
+        (p) => _etiquetaSuc(p.sucursal));
   }
 
   static TablaReporte _porSucursalInv(TipoReporte t, FiltrosReporte f, DatosReporte d) {
@@ -651,28 +918,39 @@ class ReportesCalculos {
       g.putIfAbsent(_etiquetaSuc(p.sucursal), () => []).add(p);
     }
     final claves = g.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return _tablaInv(t, f, d, 'Sucursal', claves, g);
+    return _tablaInv(t, f, d, 'Sucursal', claves, g, 'Categoría', _catDe);
   }
 
   static TablaReporte _tablaInv(TipoReporte t, FiltrosReporte f, DatosReporte d,
-      String titulo, List<String> claves, Map<String, List<Producto>> g) {
-    var nProd = 0, uni = 0, bajo = 0, ago = 0;
-    var valor = 0.0;
+      String titulo, List<String> claves, Map<String, List<Producto>> g,
+      String dimTitulo, String Function(Producto) dim) {
+    double valorDe(List<Producto> l) => r2(
+        l.fold<double>(0, (s, p) => s + (p.stock > 0 ? p.stock * p.precio : 0.0)));
+    final valorTotal = r2(claves.fold<double>(0, (s, k) => s + valorDe(g[k]!)));
+
+    var nProd = 0, uni = 0, disp = 0, bajo = 0, ago = 0;
     final filas = <List<Object?>>[];
+    final detalles = <DetalleReporte?>[];
     for (final k in claves) {
       final l = g[k]!;
       final u = l.fold<int>(0, (s, p) => s + p.stock);
-      final v = r2(l.fold<double>(0, (s, p) => s + (p.stock > 0 ? p.stock * p.precio : 0)));
+      final v = valorDe(l);
       final b = l.where((p) => p.stock > 0 && p.stock <= p.stockMinimo).length;
       final a = l.where((p) => p.stock <= 0).length;
+      final di = l.length - a - b;
       nProd += l.length;
       uni += u;
-      valor += v;
+      disp += di;
       bajo += b;
       ago += a;
-      filas.add([k, l.length, u, v, b, a]);
+      filas.add([
+        k, l.length, u, v, di, b, a,
+        valorTotal == 0 ? 0.0 : v / valorTotal * 100,
+      ]);
+      // Productos del grupo
+      detalles.add(_detalleProductos(l, 'Productos de $k',
+          conValor: true, dimTitulo: dimTitulo, dim: dim));
     }
-    valor = r2(valor);
     return _tabla(
       t, f, d,
       [
@@ -680,15 +958,20 @@ class ReportesCalculos {
         const ColumnaReporte('Productos', TipoColumna.entero),
         const ColumnaReporte('Unidades en stock', TipoColumna.entero),
         const ColumnaReporte('Valor de inventario (C\$)', TipoColumna.moneda),
+        const ColumnaReporte('Disponibles', TipoColumna.entero),
         const ColumnaReporte('Stock bajo', TipoColumna.entero),
         const ColumnaReporte('Agotados', TipoColumna.entero),
+        const ColumnaReporte('% del valor', TipoColumna.porcentaje),
       ],
       filas,
-      totales: ['TOTAL', nProd, uni, valor, bajo, ago],
+      totales: ['TOTAL', nProd, uni, valorTotal, disp, bajo, ago, valorTotal == 0 ? 0.0 : 100.0],
+      detalles: detalles,
       resumen: [
         Indicador('Productos', TablaReporte.formatearEntero(nProd)),
         Indicador('Unidades', TablaReporte.formatearEntero(uni)),
-        Indicador('Valor de inventario', TablaReporte.formatearMoneda(valor)),
+        Indicador('Valor de inventario', TablaReporte.formatearMoneda(valorTotal)),
+        Indicador('Stock bajo', TablaReporte.formatearEntero(bajo)),
+        Indicador('Agotados', TablaReporte.formatearEntero(ago)),
       ],
       advertencias: const [
         'Valor de inventario = stock x precio de venta de cada producto.',
@@ -770,11 +1053,13 @@ class ReportesCalculos {
       ..sort((a, b) => b.fecha.compareTo(a.fecha));
     final entradas = ms.where((m) => m.tipo == 'Entrada').fold<int>(0, (s, m) => s + m.cantidad);
     final salidas = ms.where((m) => m.tipo != 'Entrada').fold<int>(0, (s, m) => s + m.cantidad);
+    final productos = ms.map((m) => norm(m.producto)).toSet().length;
     return _tabla(
       t, f, d,
       const [
         ColumnaReporte('Fecha'),
         ColumnaReporte('Producto'),
+        ColumnaReporte('Categoría'),
         ColumnaReporte('Sucursal'),
         ColumnaReporte('Tipo'),
         ColumnaReporte('Cantidad', TipoColumna.entero),
@@ -786,14 +1071,18 @@ class ReportesCalculos {
       [
         for (final m in ms)
           [
-            _fHora.format(m.fecha), m.producto, _etiquetaSuc(m.sucursal), m.tipo,
+            _fHora.format(m.fecha), m.producto,
+            m.categoria.trim().isEmpty ? sinCategoria : m.categoria.trim(),
+            _etiquetaSuc(m.sucursal), m.tipo,
             m.cantidad, m.stockAnterior, m.stockNuevo, m.motivo, m.autor,
           ],
       ],
       resumen: [
         Indicador('Movimientos', TablaReporte.formatearEntero(ms.length)),
+        Indicador('Productos distintos', TablaReporte.formatearEntero(productos)),
         Indicador('Entradas (unid.)', TablaReporte.formatearEntero(entradas)),
         Indicador('Salidas (unid.)', TablaReporte.formatearEntero(salidas)),
+        Indicador('Saldo neto (unid.)', TablaReporte.formatearEntero(entradas - salidas)),
       ],
     );
   }
@@ -803,70 +1092,166 @@ class ReportesCalculos {
     final ventasIds = r.lineas.map((l) => l.ventaId).toSet();
     final importe = r2(r.lineas.fold<double>(0, (s, l) => s + l.subtotal));
     final ps = _prodFiltrados(d, f, t);
-    final ago = ps.where((p) => p.stock <= 0).length;
-    final bajo = ps.where((p) => p.stock > 0 && p.stock <= p.stockMinimo).length;
+    final lAgo = ps.where((p) => p.stock <= 0).toList();
+    final lBajo = ps.where((p) => p.stock > 0 && p.stock <= p.stockMinimo).toList();
     final activos = ps.where((p) => norm(p.estado) == 'activo').length;
 
     final filas = <List<Object?>>[];
+    final detalles = <DetalleReporte?>[];
+    void agregar(String concepto, String valor, [DetalleReporte? det]) {
+      filas.add([concepto, valor]);
+      detalles.add(det);
+    }
+
     final adv = <String>[..._advVentas(r)];
     if (ventasIds.isNotEmpty) {
-      filas.add(['Ventas en el período', TablaReporte.formatearEntero(ventasIds.length)]);
-      filas.add(['Importe vendido', TablaReporte.formatearMoneda(importe)]);
-      filas.add([
-        'Promedio por venta',
-        TablaReporte.formatearMoneda(r2(importe / ventasIds.length)),
-      ]);
+      // Ventas por sucursal
+      DetalleReporte? detSuc;
+      final porSuc = _agrupar(
+          r.lineas, (l) => normSucursal(l.sucursal), (l) => _etiquetaSuc(l.sucursal));
+      if (porSuc.length > 1) {
+        final lista = porSuc.values.toList()..sort((a, b) => b.importe.compareTo(a.importe));
+        detSuc = DetalleReporte(
+          titulo: 'Ventas por sucursal',
+          columnas: const [
+            ColumnaReporte('Sucursal'),
+            ColumnaReporte('Ventas', TipoColumna.entero),
+            ColumnaReporte('Importe (C\$)', TipoColumna.moneda),
+            ColumnaReporte('% del total', TipoColumna.porcentaje),
+          ],
+          filas: [
+            for (final a in lista)
+              [
+                a.etiqueta, a.ventas.length, r2(a.importe),
+                importe == 0 ? 0.0 : a.importe / importe * 100,
+              ],
+          ],
+        );
+      }
+      agregar('Ventas en el período', TablaReporte.formatearEntero(ventasIds.length));
+      agregar('Importe vendido', TablaReporte.formatearMoneda(importe), detSuc);
+      agregar('Promedio por venta',
+          TablaReporte.formatearMoneda(r2(importe / ventasIds.length)));
+      agregar('Unidades vendidas',
+          TablaReporte.formatearCantidad(r.lineas.fold<double>(0, (s, l) => s + l.cantidad)));
+
+      // Venta más alta
+      final porVenta = <String, double>{};
+      final codigoDe = <String, String>{};
+      for (final l in r.lineas) {
+        porVenta[l.ventaId] = (porVenta[l.ventaId] ?? 0) + l.subtotal;
+        codigoDe[l.ventaId] = l.codigoVenta;
+      }
+      final mayor = porVenta.entries.reduce((a, b) => b.value > a.value ? b : a);
+      agregar('Venta más alta',
+          '${TablaReporte.formatearMoneda(r2(mayor.value))} (${codigoDe[mayor.key]})');
+
+      // Mejor día, con sus ventas
+      final porDia = _agrupar(r.lineas, (l) => DateFormat('yyyy-MM-dd').format(l.fecha),
+          (l) => _fDia.format(l.fecha));
+      final mejorDia = porDia.values.reduce((a, b) => b.importe > a.importe ? b : a);
+      agregar(
+          'Día con más ventas',
+          '${mejorDia.etiqueta} (${TablaReporte.formatearMoneda(r2(mejorDia.importe))})',
+          _detalleVentas(mejorDia.lineas, 'Ventas de ${mejorDia.etiqueta}'));
+
+      // Productos más vendidos
+      final conDet = r.lineas.where((l) => !l.sinDetalle).toList();
+      if (conDet.isNotEmpty) {
+        final porProd =
+            _agrupar(conDet, (l) => norm(l.producto), (l) => l.producto).values.toList()
+              ..sort((a, b) => b.cantidad.compareTo(a.cantidad));
+        final top = porProd.first;
+        agregar(
+          'Producto más vendido',
+          '${top.etiqueta} (${TablaReporte.formatearCantidad(top.cantidad)} unid.)',
+          DetalleReporte(
+            titulo: 'Top 5 productos más vendidos',
+            columnas: const [
+              ColumnaReporte('#', TipoColumna.entero),
+              ColumnaReporte('Producto'),
+              ColumnaReporte('Unidades', TipoColumna.cantidad),
+              ColumnaReporte('Importe (C\$)', TipoColumna.moneda),
+            ],
+            filas: [
+              for (var i = 0; i < porProd.length && i < 5; i++)
+                [i + 1, porProd[i].etiqueta, porProd[i].cantidad, r2(porProd[i].importe)],
+            ],
+          ),
+        );
+      }
+
       final inactivas = r.lineas
           .where((l) => norm(l.estado) != 'activo')
           .map((l) => l.ventaId)
           .toSet()
           .length;
       if (inactivas > 0) {
-        adv.add('Las ventas incluyen todos los estados ($inactivas con estado distinto de Activo).');
+        adv.add('Se están mostrando ventas anuladas o inactivas ($inactivas).');
       }
     } else {
       adv.add('No hubo ventas en el período seleccionado.');
     }
+
     if (ps.isNotEmpty) {
-      filas.add(['Productos registrados', TablaReporte.formatearEntero(ps.length)]);
-      filas.add(['Productos activos', TablaReporte.formatearEntero(activos)]);
-      filas.add(['Productos con stock bajo', TablaReporte.formatearEntero(bajo)]);
-      filas.add(['Productos agotados', TablaReporte.formatearEntero(ago)]);
+      final unidades = ps.fold<int>(0, (s, p) => s + p.stock);
+      final valor = r2(ps.fold<double>(0, (s, p) => s + (p.stock > 0 ? p.stock * p.precio : 0.0)));
+      agregar('Productos registrados', TablaReporte.formatearEntero(ps.length));
+      agregar('Productos activos', TablaReporte.formatearEntero(activos));
+      agregar('Unidades en stock', TablaReporte.formatearEntero(unidades));
+      agregar('Valor del inventario', TablaReporte.formatearMoneda(valor));
+      agregar('Productos con stock bajo', TablaReporte.formatearEntero(lBajo.length),
+          _detalleProductos(lBajo, 'Productos con stock bajo'));
+      agregar('Productos agotados', TablaReporte.formatearEntero(lAgo.length),
+          _detalleProductos(lAgo, 'Productos agotados'));
     }
     if (!f.activo(t, FiltroReporte.sucursal) && d.sucursales.isNotEmpty) {
-      filas.add(['Sucursales registradas', TablaReporte.formatearEntero(d.sucursales.length)]);
-      filas.add([
-        'Sucursales activas',
-        TablaReporte.formatearEntero(d.sucursales.where((s) => s.activo).length),
-      ]);
+      agregar('Sucursales registradas', TablaReporte.formatearEntero(d.sucursales.length));
+      agregar('Sucursales activas',
+          TablaReporte.formatearEntero(d.sucursales.where((s) => s.activo).length));
     }
     return _tabla(
       t, f, d,
       const [ColumnaReporte('Indicador'), ColumnaReporte('Valor')],
       filas,
+      detalles: detalles,
       advertencias: adv,
     );
   }
 
   static TablaReporte _disponibilidad(TipoReporte t, FiltrosReporte f, DatosReporte d) {
     final ps = _prodFiltrados(d, f, t);
-    final activos = ps.where((p) => norm(p.estado) == 'activo').length;
-    final ago = ps.where((p) => p.stock <= 0).length;
-    final bajo = ps.where((p) => p.stock > 0 && p.stockMinimo >= p.stock).length;
-    final disp = ps.length - ago - bajo;
+    final lAct = ps.where((p) => norm(p.estado) == 'activo').toList();
+    final lInact = ps.where((p) => norm(p.estado) != 'activo').toList();
+    final lAgo = ps.where((p) => p.stock <= 0).toList();
+    final lBajo = ps.where((p) => p.stock > 0 && p.stockMinimo >= p.stock).toList();
+    final lDisp = ps.where((p) => p.stock > 0 && p.stockMinimo < p.stock).toList();
+
+    double pct(int n) => ps.isEmpty ? 0.0 : n / ps.length * 100;
+    final filas = <List<Object?>>[];
+    final detalles = <DetalleReporte?>[];
+    void agregar(String concepto, List<Producto> l, {bool detalle = true}) {
+      filas.add([concepto, l.length, pct(l.length)]);
+      detalles.add(detalle ? _detalleProductos(l, concepto) : null);
+    }
+
+    if (ps.isNotEmpty) {
+      agregar('Productos registrados', ps, detalle: false);
+      agregar('Activos', lAct);
+      agregar('Inactivos', lInact);
+      agregar('Disponibles (sobre el stock mínimo)', lDisp);
+      agregar('Con stock bajo', lBajo);
+      agregar('Agotados', lAgo);
+    }
     return _tabla(
       t, f, d,
-      const [ColumnaReporte('Concepto'), ColumnaReporte('Productos', TipoColumna.entero)],
-      ps.isEmpty
-          ? <List<Object?>>[]
-          : [
-              ['Productos registrados', ps.length],
-              ['Activos', activos],
-              ['Inactivos', ps.length - activos],
-              ['Disponibles (sobre el stock mínimo)', disp],
-              ['Con stock bajo', bajo],
-              ['Agotados', ago],
-            ],
+      const [
+        ColumnaReporte('Concepto'),
+        ColumnaReporte('Productos', TipoColumna.entero),
+        ColumnaReporte('% del total', TipoColumna.porcentaje),
+      ],
+      filas,
+      detalles: detalles,
       advertencias: const [
         'Disponibilidad, stock bajo y agotados se calculan sobre todos los productos '
             'filtrados, estén activos o no.',
@@ -874,9 +1259,41 @@ class ReportesCalculos {
     );
   }
 
+  // Detalle: datos y productos del evento
+  static DetalleReporte? _detalleEvento(EventoAuditoria e) {
+    final filas = <List<Object?>>[
+      for (final c in e.datosAdicionales) [c.etiqueta, c.valor],
+    ];
+    for (final p in e.productos) {
+      final extra = (p.detalle ?? '').trim();
+      filas.add([
+        'Producto: ${p.nombre}',
+        'Cantidad: ${p.cantidad}${extra.isEmpty ? '' : ' - $extra'}',
+      ]);
+    }
+    if (filas.isEmpty) return null;
+    return DetalleReporte(
+      titulo: 'Datos del evento',
+      columnas: const [ColumnaReporte('Concepto'), ColumnaReporte('Detalle')],
+      filas: filas,
+    );
+  }
+
+  static String _masFrecuente(Iterable<String> valores) {
+    final m = <String, int>{};
+    for (final v in valores) {
+      final k = v.trim().isEmpty ? '(sin dato)' : v.trim();
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    if (m.isEmpty) return '-';
+    final top = m.entries.reduce((a, b) => b.value > a.value ? b : a);
+    return '${top.key} (${top.value})';
+  }
+
   static TablaReporte _auditoria(TipoReporte t, FiltrosReporte f, DatosReporte d) {
     final es = d.eventos.where((e) => f.incluyeFecha(e.fecha)).toList()
       ..sort((a, b) => b.fecha.compareTo(a.fecha));
+    final usuarios = es.map((e) => norm(e.autor)).toSet().length;
     return _tabla(
       t, f, d,
       const [
@@ -884,13 +1301,24 @@ class ReportesCalculos {
         ColumnaReporte('Usuario'),
         ColumnaReporte('Acción'),
         ColumnaReporte('Módulo'),
+        ColumnaReporte('Folio'),
         ColumnaReporte('Descripción'),
       ],
       [
         for (final e in es)
-          [_fHora.format(e.fecha), e.autor, e.etiqueta, e.modulo, e.descripcion],
+          [
+            _fHora.format(e.fecha), e.autor, e.etiqueta, e.modulo,
+            e.idReferencia.isEmpty ? '-' : e.idReferencia, e.descripcion,
+          ],
       ],
-      resumen: [Indicador('Eventos', TablaReporte.formatearEntero(es.length))],
+      detalles: [for (final e in es) _detalleEvento(e)],
+      resumen: [
+        Indicador('Eventos', TablaReporte.formatearEntero(es.length)),
+        Indicador('Usuarios distintos', TablaReporte.formatearEntero(usuarios)),
+        Indicador('Usuario más activo', _masFrecuente(es.map((e) => e.autor))),
+        Indicador('Módulo más usado', _masFrecuente(es.map((e) => e.modulo))),
+      ],
     );
   }
+
 }

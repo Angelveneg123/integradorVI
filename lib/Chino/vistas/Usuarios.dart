@@ -6,13 +6,15 @@ import '../controladores/usuarios_service.dart';
 import '../../Henry/modelos/sucursal_modelo.dart';
 import '../../Henry/controladores/sucursales_service.dart';
 import '../controladores/permisos_service.dart';
+import '../controladores/apariencia_service.dart';
+import 'filtros_comunes.dart';
 
 // Colores
-const Color _textoOscuro = Color(0xFF5A3E36);
-const Color _textoClaro = Color(0xFF7A6B65);
-const Color _colorAcento = Color(0xFFA65021);
-const Color _colorBorde = Color(0xFFE8DFD8);
-const Color _fondoInput = Color(0xFFFCFAF7);
+Color get _textoOscuro => Apariencia.instance.textoOscuro;
+Color get _textoClaro => Apariencia.instance.textoClaro;
+Color get _colorAcento => Apariencia.instance.acento;
+Color get _colorBorde => Apariencia.instance.borde;
+Color get _fondoInput => Apariencia.instance.fondoInput;
 const Color _rojo = Color(0xFFB3261E);
 
 // Error a texto corto
@@ -24,21 +26,21 @@ String _mensajeError(Object e) => e
 InputDecoration _decoracionCampo({String? hint}) {
   return InputDecoration(
     hintText: hint,
-    hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+    hintStyle: TextStyle(color: Apariencia.instance.hint, fontSize: 14),
     filled: true,
     fillColor: _fondoInput,
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorBorde),
+      borderSide: BorderSide(color: _colorBorde),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorAcento),
+      borderSide: BorderSide(color: _colorAcento),
     ),
     disabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorBorde),
+      borderSide: BorderSide(color: _colorBorde),
     ),
   );
 }
@@ -53,20 +55,33 @@ class UsuariosScreen extends StatefulWidget {
 }
 
 class _UsuariosScreenState extends State<UsuariosScreen> {
-  static const List<String> _filtros = [
-    'Todos',
-    'Activos',
-    'Inactivos',
-    'Administradores',
-    'Vendedores',
-  ];
-
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _buscadorController = TextEditingController();
   final UsuariosService _service = UsuariosService();
 
-  String _filtroSeleccionado = 'Todos';
+  // Misma conexión para la lista y para las opciones de los filtros
+  late final Stream<List<Usuario>> _stream = _service.streamUsuarios();
+
   String _textoBusqueda = '';
+
+  // Filtros desplegables
+  String _filtroSucursal = '';
+  String _filtroEstado = '';
+  String _filtroRol = '';
+
+  bool get _hayFiltros =>
+      _filtroSucursal.isNotEmpty ||
+      _filtroEstado.isNotEmpty ||
+      _filtroRol.isNotEmpty;
+
+  // Quitar todos los filtros
+  void _quitarFiltros() {
+    setState(() {
+      _filtroSucursal = '';
+      _filtroEstado = '';
+      _filtroRol = '';
+    });
+  }
 
   List<Usuario> _filtrar(List<Usuario> lista) {
     final texto = _textoBusqueda.trim().toLowerCase();
@@ -75,15 +90,11 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
           u.nombre.toLowerCase().contains(texto) ||
           u.correo.toLowerCase().contains(texto) ||
           u.codigo.toLowerCase().contains(texto);
-      final coincideFiltro = switch (_filtroSeleccionado) {
-        'Todos' => true,
-        'Activos' => u.activo,
-        'Inactivos' => !u.activo,
-        'Administradores' => u.esAdministrador,
-        'Vendedores' => u.rol == 'Vendedor',
-        _ => true,
-      };
-      return coincideTexto && coincideFiltro;
+      final coincideSucursal = _filtroSucursal.isEmpty ||
+          u.sucursal.trim().toLowerCase() == _filtroSucursal.toLowerCase();
+      final coincideEstado = _filtroEstado.isEmpty || u.estado == _filtroEstado;
+      final coincideRol = _filtroRol.isEmpty || u.rol == _filtroRol;
+      return coincideTexto && coincideSucursal && coincideEstado && coincideRol;
     }).toList();
   }
 
@@ -128,7 +139,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Usuarios',
                       style: TextStyle(
                         fontSize: 26,
@@ -137,7 +148,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Registro de usuarios',
                       style: TextStyle(fontSize: 13, color: _textoClaro),
                     ),
@@ -151,41 +162,61 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                         hint: 'Buscar usuario...',
                       ).copyWith(
                         prefixIcon:
-                            const Icon(Icons.search, color: _textoClaro),
+                            Icon(Icons.search, color: _textoClaro),
                         contentPadding:
                             const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                     const SizedBox(height: 14),
 
-                    // Filtros tipo pill
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _filtros.map((filtro) {
-                        final seleccionado = _filtroSeleccionado == filtro;
-                        return ChoiceChip(
-                          label: Text(filtro),
-                          selected: seleccionado,
-                          onSelected: (_) =>
-                              setState(() => _filtroSeleccionado = filtro),
-                          labelStyle: TextStyle(
-                            color: seleccionado ? Colors.white : _textoOscuro,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                          selectedColor: _colorAcento,
-                          backgroundColor: _fondoInput,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            side: BorderSide(
-                              color:
-                                  seleccionado ? _colorAcento : _colorBorde,
+                    // Filtros desplegables
+                    StreamBuilder<List<Usuario>>(
+                      stream: _stream,
+                      builder: (context, snapshot) {
+                        final datos = snapshot.data ?? const <Usuario>[];
+                        return BarraFiltros(
+                          hayFiltros: _hayFiltros,
+                          onLimpiar: _quitarFiltros,
+                          filtros: [
+                            FiltroDesplegable(
+                              icono: Icons.storefront_outlined,
+                              titulo: 'Sucursal',
+                              valor: _filtroSucursal,
+                              opciones: {
+                                '': 'Todas las sucursales',
+                                for (final s in opcionesUnicas(
+                                  datos.map((u) => u.sucursal),
+                                ))
+                                  s: s,
+                              },
+                              onChanged: (v) =>
+                                  setState(() => _filtroSucursal = v),
                             ),
-                          ),
-                          showCheckmark: false,
+                            FiltroDesplegable(
+                              icono: Icons.toggle_on_outlined,
+                              titulo: 'Estado',
+                              valor: _filtroEstado,
+                              opciones: const {
+                                '': 'Todos los estados',
+                                'Activo': 'Activo',
+                                'Inactivo': 'Inactivo',
+                              },
+                              onChanged: (v) =>
+                                  setState(() => _filtroEstado = v),
+                            ),
+                            FiltroDesplegable(
+                              icono: Icons.badge_outlined,
+                              titulo: 'Rol',
+                              valor: _filtroRol,
+                              opciones: {
+                                '': 'Todos los roles',
+                                for (final r in kRolesUsuario) r: r,
+                              },
+                              onChanged: (v) => setState(() => _filtroRol = v),
+                            ),
+                          ],
                         );
-                      }).toList(),
+                      },
                     ),
                     const SizedBox(height: 14),
 
@@ -211,7 +242,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'Listado',
                       style: TextStyle(
                         fontSize: 14,
@@ -223,7 +254,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
 
                     // Lista en vivo
                     StreamBuilder<List<Usuario>>(
-                      stream: _service.streamUsuarios(),
+                      stream: _stream,
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
                           return _MensajeEstado(
@@ -233,7 +264,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                           );
                         }
                         if (!snapshot.hasData) {
-                          return const Padding(
+                          return Padding(
                             padding: EdgeInsets.symmetric(vertical: 40),
                             child: Center(
                               child: CircularProgressIndicator(
@@ -245,10 +276,12 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
 
                         final lista = _filtrar(snapshot.data!);
                         if (lista.isEmpty) {
-                          return const _MensajeEstado(
+                          return _MensajeEstado(
                             icono: Icons.people_outline,
-                            texto: 'No se encontraron usuarios.\n'
-                                'Toca "Nuevo" para registrar el primero.',
+                            texto: _hayFiltros || _textoBusqueda.isNotEmpty
+                                ? 'No hay usuarios con los filtros seleccionados.'
+                                : 'No se encontraron usuarios.\n'
+                                    'Toca "Nuevo" para registrar el primero.',
                           );
                         }
 
@@ -293,7 +326,7 @@ class _MensajeEstado extends StatelessWidget {
             Text(
               texto,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _textoClaro),
+              style: TextStyle(color: _textoClaro),
             ),
           ],
         ),
@@ -345,7 +378,7 @@ class _TarjetaUsuario extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Apariencia.instance.superficie,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: _colorBorde),
           ),
@@ -361,7 +394,7 @@ class _TarjetaUsuario extends StatelessWidget {
                           child: Text(
                             usuario.nombre,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
                               color: _textoOscuro,
@@ -375,13 +408,13 @@ class _TarjetaUsuario extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       '${usuario.rol} · ${etiquetaSucursal(usuario.sucursal)}',
-                      style: const TextStyle(fontSize: 12, color: _textoClaro),
+                      style: TextStyle(fontSize: 12, color: _textoClaro),
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 6),
-              const Icon(Icons.chevron_right, size: 20, color: _textoClaro),
+              Icon(Icons.chevron_right, size: 20, color: _textoClaro),
             ],
           ),
         ),
@@ -477,6 +510,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
       return;
     }
 
+    if (_guardando) return; // ignora toques repetidos
     setState(() => _guardando = true);
     final messenger = ScaffoldMessenger.of(context);
     final estado = _activo ? 'Activo' : 'Inactivo';
@@ -521,7 +555,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
         padding: const EdgeInsets.only(bottom: 6),
         child: Text(
           texto,
-          style: const TextStyle(fontSize: 12, color: _textoClaro),
+          style: TextStyle(fontSize: 12, color: _textoClaro),
         ),
       );
 
@@ -537,7 +571,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
           );
         }
         if (!snapshot.hasData) {
-          return const Padding(
+          return Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: LinearProgressIndicator(color: _colorAcento),
           );
@@ -553,10 +587,10 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF1D2),
+              color: Apariencia.instance.aviso,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Text(
+            child: Text(
               'No hay sucursales activas. Registra una en el módulo '
               'Sucursales (menú lateral) para poder continuar.',
               style: TextStyle(fontSize: 12, color: _textoOscuro),
@@ -604,7 +638,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
                   ? null
                   : (v) => setState(() => _activo = v ?? true),
             ),
-            const Expanded(
+            Expanded(
               child: Text(
                 'Usuario activo',
                 style: TextStyle(
@@ -631,8 +665,8 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
             children: [
               TextButton.icon(
                 onPressed: _guardando ? null : () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-                label: const Text(
+                icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+                label: Text(
                   'Usuarios',
                   style: TextStyle(color: _textoOscuro),
                 ),
@@ -645,7 +679,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
               Center(
                 child: Text(
                   _editando ? 'Editar usuario' : 'Nuevo usuario',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
                     color: _textoOscuro,
@@ -669,11 +703,11 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
                 keyboardType: TextInputType.emailAddress,
                 decoration: _decoracionCampo(hint: 'Escribir correo'),
                 style: TextStyle(
-                  color: _editando ? _textoClaro : Colors.black87,
+                  color: _editando ? _textoClaro : _textoOscuro,
                 ),
               ),
               if (_editando)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(top: 6),
                   child: Text(
                     'El correo no se puede cambiar: queda como registro del acceso de la cuenta.',
@@ -731,6 +765,14 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
                 },
                 decoration: _decoracionCampo(),
               ),
+              if (_rol == 'Encargado')
+                Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Será el encargado de la sucursal que elijas (solo uno por sucursal).',
+                    style: TextStyle(fontSize: 12, color: _textoClaro),
+                  ),
+                ),
               const SizedBox(height: 16),
 
               _etiqueta('Sucursal'),
@@ -774,7 +816,7 @@ class _UsuarioFormScreenState extends State<UsuarioFormScreen> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _textoOscuro,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: _textoOscuro),
+                    side: BorderSide(color: _textoOscuro),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -826,6 +868,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
 
   Future<void> _cambiarEstado(Usuario usuario) async {
     final nuevo = usuario.activo ? 'Inactivo' : 'Activo';
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     try {
       await widget.service.cambiarEstado(usuario, nuevo);
@@ -864,6 +907,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
     );
     if (confirmar != true || !mounted) return;
 
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -903,6 +947,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
     );
     if (confirmar != true || !mounted) return;
 
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -938,7 +983,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
             }
             if (snapshot.connectionState == ConnectionState.waiting) {
               return _cuerpoSimple(
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
                   child: Center(
                     child: CircularProgressIndicator(color: _colorAcento),
@@ -964,8 +1009,8 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
 
   Widget _botonAtras() => TextButton.icon(
         onPressed: () => Navigator.pop(context),
-        icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-        label: const Text('Usuarios', style: TextStyle(color: _textoOscuro)),
+        icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+        label: Text('Usuarios', style: TextStyle(color: _textoOscuro)),
         style: TextButton.styleFrom(
           padding: EdgeInsets.zero,
           alignment: Alignment.centerLeft,
@@ -996,7 +1041,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Apariencia.instance.superficie,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: _colorBorde),
             ),
@@ -1005,7 +1050,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
               children: [
                 Text(
                   u.nombre,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
                     color: _textoOscuro,
@@ -1018,7 +1063,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
                     const SizedBox(width: 10),
                     Text(
                       u.rol,
-                      style: const TextStyle(fontSize: 13, color: _textoClaro),
+                      style: TextStyle(fontSize: 13, color: _textoClaro),
                     ),
                   ],
                 ),
@@ -1027,7 +1072,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
           ),
           const SizedBox(height: 22),
 
-          const Text(
+          Text(
             'Información',
             style: TextStyle(
               fontSize: 15,
@@ -1040,7 +1085,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Apariencia.instance.superficie,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: _colorBorde),
             ),
@@ -1058,7 +1103,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
           ),
           const SizedBox(height: 22),
 
-          const Text(
+          Text(
             'Acciones',
             style: TextStyle(
               fontSize: 15,
@@ -1110,7 +1155,7 @@ class _DetalleUsuarioScreenState extends State<DetalleUsuarioScreen> {
                 : () => _cambiarEstado(u),
           ),
           if (esMiCuenta)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 10),
               child: Text(
                 'Es tu propia cuenta: no puedes eliminarla ni desactivarla.',
@@ -1137,14 +1182,14 @@ class _FilaInfo extends StatelessWidget {
       decoration: BoxDecoration(
         border: ultima
             ? null
-            : const Border(bottom: BorderSide(color: _colorBorde)),
+            : Border(bottom: BorderSide(color: _colorBorde)),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
               etiqueta,
-              style: const TextStyle(fontSize: 13, color: _textoClaro),
+              style: TextStyle(fontSize: 13, color: _textoClaro),
             ),
           ),
           const SizedBox(width: 12),
@@ -1152,7 +1197,7 @@ class _FilaInfo extends StatelessWidget {
             child: Text(
               valor,
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
                 color: _textoOscuro,

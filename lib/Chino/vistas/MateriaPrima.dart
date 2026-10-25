@@ -6,13 +6,15 @@ import '../controladores/materia_prima_service.dart';
 import '../../Henry/modelos/sucursal_modelo.dart';
 import '../../Henry/controladores/sucursales_service.dart';
 import '../controladores/permisos_service.dart';
+import '../controladores/apariencia_service.dart';
+import 'filtros_comunes.dart';
 
 // Colores
-const Color _textoOscuro = Color(0xFF5A3E36);
-const Color _textoClaro = Color(0xFF7A6B65);
-const Color _colorAcento = Color(0xFFA65021);
-const Color _colorBorde = Color(0xFFE8DFD8);
-const Color _fondoInput = Color(0xFFFCFAF7);
+Color get _textoOscuro => Apariencia.instance.textoOscuro;
+Color get _textoClaro => Apariencia.instance.textoClaro;
+Color get _colorAcento => Apariencia.instance.acento;
+Color get _colorBorde => Apariencia.instance.borde;
+Color get _fondoInput => Apariencia.instance.fondoInput;
 const Color _verde = Color(0xFF1F7A3D);
 
 // Error a texto corto
@@ -24,17 +26,17 @@ String _mensajeError(Object e) => e
 InputDecoration _decoracionCampo({String? hint}) {
   return InputDecoration(
     hintText: hint,
-    hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+    hintStyle: TextStyle(color: Apariencia.instance.hint, fontSize: 14),
     filled: true,
     fillColor: _fondoInput,
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorBorde),
+      borderSide: BorderSide(color: _colorBorde),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorAcento),
+      borderSide: BorderSide(color: _colorAcento),
     ),
   );
 }
@@ -49,19 +51,43 @@ class MateriaPrimaScreen extends StatefulWidget {
 }
 
 class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
-  static const List<String> _filtros = [
-    'Todos',
-    'Activos',
-    'Inactivos',
-    ...kCategoriasMateriaPrima,
-  ];
-
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _buscadorController = TextEditingController();
   final MateriaPrimaService _service = MateriaPrimaService();
 
-  String _filtroSeleccionado = 'Todos';
+  // Misma conexión para la lista y para las opciones de los filtros
+  late final Stream<List<MateriaPrima>> _stream =
+      _service.streamMateriasPrimas();
+
   String _textoBusqueda = '';
+
+  // Filtros desplegables
+  String _filtroSucursal = '';
+  String _filtroEstado = '';
+  String _filtroStock = '';
+  String _filtroUnidad = '';
+  DateTime? _filtroDesde;
+  DateTime? _filtroHasta;
+
+  bool get _hayFiltros =>
+      _filtroSucursal.isNotEmpty ||
+      _filtroEstado.isNotEmpty ||
+      _filtroStock.isNotEmpty ||
+      _filtroUnidad.isNotEmpty ||
+      _filtroDesde != null ||
+      _filtroHasta != null;
+
+  // Quitar todos los filtros
+  void _quitarFiltros() {
+    setState(() {
+      _filtroSucursal = '';
+      _filtroEstado = '';
+      _filtroStock = '';
+      _filtroUnidad = '';
+      _filtroDesde = null;
+      _filtroHasta = null;
+    });
+  }
 
   List<MateriaPrima> _filtrar(List<MateriaPrima> lista) {
     final texto = _textoBusqueda.trim().toLowerCase();
@@ -69,13 +95,23 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
       final coincideTexto = texto.isEmpty ||
           m.nombre.toLowerCase().contains(texto) ||
           m.codigo.toLowerCase().contains(texto);
-      final coincideFiltro = switch (_filtroSeleccionado) {
-        'Todos' => true,
-        'Activos' => m.activo,
-        'Inactivos' => !m.activo,
-        _ => m.categoria == _filtroSeleccionado,
+      final coincideSucursal = _filtroSucursal.isEmpty ||
+          m.sucursal.trim().toLowerCase() == _filtroSucursal.toLowerCase();
+      final coincideEstado = _filtroEstado.isEmpty || m.estado == _filtroEstado;
+      final coincideStock = switch (_filtroStock) {
+        'agotado' => m.agotado,
+        'disponible' => !m.agotado,
+        _ => true,
       };
-      return coincideTexto && coincideFiltro;
+      final coincideUnidad = _filtroUnidad.isEmpty ||
+          m.unidadMedida.trim().toLowerCase() == _filtroUnidad.toLowerCase();
+      final coincideFecha = fechaEnRango(m.fecha, _filtroDesde, _filtroHasta);
+      return coincideTexto &&
+          coincideSucursal &&
+          coincideEstado &&
+          coincideStock &&
+          coincideUnidad &&
+          coincideFecha;
     }).toList();
   }
 
@@ -116,7 +152,7 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
           children: [
             ChinoTopBar(
               scaffoldKey: _scaffoldKey,
-              subtitulo: 'Materia prima',
+              subtitulo: 'Ingredientes',
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -124,8 +160,8 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Materia Prima',
+                    Text(
+                      'Ingredientes',
                       style: TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
@@ -133,7 +169,7 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Registros de inventario y sucursales',
                       style: TextStyle(fontSize: 13, color: _textoClaro),
                     ),
@@ -144,44 +180,91 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
                       controller: _buscadorController,
                       onChanged: (v) => setState(() => _textoBusqueda = v),
                       decoration: _decoracionCampo(
-                        hint: 'Buscar materia prima / ingrediente...',
+                        hint: 'Buscar ingrediente...',
                       ).copyWith(
                         prefixIcon:
-                            const Icon(Icons.search, color: _textoClaro),
+                            Icon(Icons.search, color: _textoClaro),
                         contentPadding:
                             const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                     const SizedBox(height: 14),
 
-                    // Filtros tipo pill
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _filtros.map((filtro) {
-                        final seleccionado = _filtroSeleccionado == filtro;
-                        return ChoiceChip(
-                          label: Text(filtro),
-                          selected: seleccionado,
-                          onSelected: (_) =>
-                              setState(() => _filtroSeleccionado = filtro),
-                          labelStyle: TextStyle(
-                            color: seleccionado ? Colors.white : _textoOscuro,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                          selectedColor: _colorAcento,
-                          backgroundColor: _fondoInput,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            side: BorderSide(
-                              color:
-                                  seleccionado ? _colorAcento : _colorBorde,
+                    // Filtros desplegables
+                    StreamBuilder<List<MateriaPrima>>(
+                      stream: _stream,
+                      builder: (context, snapshot) {
+                        final datos = snapshot.data ?? const <MateriaPrima>[];
+                        return BarraFiltros(
+                          hayFiltros: _hayFiltros,
+                          onLimpiar: _quitarFiltros,
+                          filtros: [
+                            FiltroDesplegable(
+                              icono: Icons.storefront_outlined,
+                              titulo: 'Sucursal',
+                              valor: _filtroSucursal,
+                              opciones: {
+                                '': 'Todas las sucursales',
+                                for (final s in opcionesUnicas(
+                                  datos.map((m) => m.sucursal),
+                                ))
+                                  s: s,
+                              },
+                              onChanged: (v) =>
+                                  setState(() => _filtroSucursal = v),
                             ),
-                          ),
-                          showCheckmark: false,
+                            FiltroDesplegable(
+                              icono: Icons.toggle_on_outlined,
+                              titulo: 'Estado',
+                              valor: _filtroEstado,
+                              opciones: const {
+                                '': 'Todos los estados',
+                                'Activo': 'Activo',
+                                'Inactivo': 'Inactivo',
+                              },
+                              onChanged: (v) =>
+                                  setState(() => _filtroEstado = v),
+                            ),
+                            FiltroDesplegable(
+                              icono: Icons.inventory_2_outlined,
+                              titulo: 'Stock',
+                              valor: _filtroStock,
+                              opciones: const {
+                                '': 'Todo el stock',
+                                'disponible': 'Disponible',
+                                'agotado': 'Agotado',
+                              },
+                              onChanged: (v) =>
+                                  setState(() => _filtroStock = v),
+                            ),
+                            FiltroDesplegable(
+                              icono: Icons.straighten_outlined,
+                              titulo: 'Unidad',
+                              valor: _filtroUnidad,
+                              opciones: {
+                                '': 'Todas las unidades',
+                                for (final u in kUnidadesMedida) u: u,
+                              },
+                              onChanged: (v) =>
+                                  setState(() => _filtroUnidad = v),
+                            ),
+                            FiltroFecha(
+                              etiqueta: 'Desde',
+                              fecha: _filtroDesde,
+                              maximo: _filtroHasta,
+                              onChanged: (f) =>
+                                  setState(() => _filtroDesde = f),
+                            ),
+                            FiltroFecha(
+                              etiqueta: 'Hasta',
+                              fecha: _filtroHasta,
+                              minimo: _filtroDesde,
+                              onChanged: (f) =>
+                                  setState(() => _filtroHasta = f),
+                            ),
+                          ],
                         );
-                      }).toList(),
+                      },
                     ),
                     const SizedBox(height: 14),
 
@@ -208,7 +291,7 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'Listado',
                       style: TextStyle(
                         fontSize: 14,
@@ -220,17 +303,17 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
 
                     // Lista en vivo
                     StreamBuilder<List<MateriaPrima>>(
-                      stream: _service.streamMateriasPrimas(),
+                      stream: _stream,
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
                           return _MensajeEstado(
                             icono: Icons.error_outline,
                             texto:
-                                'Error al leer materia prima: ${snapshot.error}',
+                                'Error al leer ingredientes: ${snapshot.error}',
                           );
                         }
                         if (!snapshot.hasData) {
-                          return const Padding(
+                          return Padding(
                             padding: EdgeInsets.symmetric(vertical: 40),
                             child: Center(
                               child: CircularProgressIndicator(
@@ -244,10 +327,12 @@ class _MateriaPrimaScreenState extends State<MateriaPrimaScreen> {
                         if (lista.isEmpty) {
                           return _MensajeEstado(
                             icono: Icons.kitchen_outlined,
-                            texto: Permisos.instance.puedeEditarIngredientes
-                                ? 'No se encontró materia prima.\n'
-                                    'Toca "Nuevo" para registrar la primera.'
-                                : 'No se encontró materia prima.',
+                            texto: _hayFiltros || _textoBusqueda.isNotEmpty
+                                ? 'No hay ingredientes con los filtros seleccionados.'
+                                : Permisos.instance.puedeEditarIngredientes
+                                    ? 'No se encontró ingrediente.\n'
+                                        'Toca "Nuevo" para registrar el primero.'
+                                    : 'No se encontró ingrediente.',
                           );
                         }
 
@@ -292,7 +377,7 @@ class _MensajeEstado extends StatelessWidget {
             Text(
               texto,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _textoClaro),
+              style: TextStyle(color: _textoClaro),
             ),
           ],
         ),
@@ -343,7 +428,7 @@ class _TarjetaMateriaPrima extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Apariencia.instance.superficie,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: _colorBorde),
           ),
@@ -352,7 +437,7 @@ class _TarjetaMateriaPrima extends StatelessWidget {
             children: [
               Text(
                 materia.nombre,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                   color: _textoOscuro,
@@ -361,23 +446,23 @@ class _TarjetaMateriaPrima extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 'Cantidad: ${materia.cantidadConUnidad} en stock · ${materia.sucursal}',
-                style: const TextStyle(fontSize: 12, color: _textoClaro),
+                style: TextStyle(fontSize: 12, color: _textoClaro),
               ),
-              const Divider(height: 20, color: _colorBorde),
+              Divider(height: 20, color: _colorBorde),
               Row(
                 children: [
                   _EtiquetaEstado(activo: materia.activo),
                   const Spacer(),
                   Text(
                     'REF: ${materia.codigo}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: _textoOscuro,
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right, size: 18, color: _textoClaro),
+                  Icon(Icons.chevron_right, size: 18, color: _textoClaro),
                 ],
               ),
             ],
@@ -456,7 +541,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
         double.tryParse(_cantidadController.text.trim().replaceAll(',', '.'));
 
     if (nombre.isEmpty) {
-      _aviso('Escribe el nombre de la materia prima.');
+      _aviso('Escribe el nombre del ingrediente.');
       return;
     }
     if (cantidad == null || cantidad < 0) {
@@ -468,6 +553,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
       return;
     }
 
+    if (_guardando) return; // ignora toques repetidos
     setState(() => _guardando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -494,7 +580,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            _editando ? 'Cambios guardados.' : 'Materia prima registrada.',
+            _editando ? 'Cambios guardados.' : 'Ingrediente registrado.',
           ),
         ),
       );
@@ -509,7 +595,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
         padding: const EdgeInsets.only(bottom: 6),
         child: Text(
           texto,
-          style: const TextStyle(fontSize: 12, color: _textoClaro),
+          style: TextStyle(fontSize: 12, color: _textoClaro),
         ),
       );
 
@@ -543,7 +629,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
           );
         }
         if (!snapshot.hasData) {
-          return const Padding(
+          return Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: LinearProgressIndicator(color: _colorAcento),
           );
@@ -559,10 +645,10 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF1D2),
+              color: Apariencia.instance.aviso,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Text(
+            child: Text(
               'No hay sucursales activas. Registra una en el módulo '
               'Sucursales (menú lateral) para poder continuar.',
               style: TextStyle(fontSize: 12, color: _textoOscuro),
@@ -595,9 +681,9 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
             children: [
               TextButton.icon(
                 onPressed: _guardando ? null : () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-                label: const Text(
-                  'Materia Prima',
+                icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+                label: Text(
+                  'Ingredientes',
                   style: TextStyle(color: _textoOscuro),
                 ),
                 style: TextButton.styleFrom(
@@ -608,8 +694,8 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
               const SizedBox(height: 8),
               Center(
                 child: Text(
-                  _editando ? 'Editar' : 'Nueva materia prima',
-                  style: const TextStyle(
+                  _editando ? 'Editar' : 'Nueva ingrediente',
+                  style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
                     color: _textoOscuro,
@@ -708,7 +794,7 @@ class _MateriaPrimaFormScreenState extends State<MateriaPrimaFormScreen> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _textoOscuro,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: _textoOscuro),
+                    side: BorderSide(color: _textoOscuro),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -761,6 +847,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
 
   Future<void> _cambiarEstado(MateriaPrima materia) async {
     final nuevo = materia.activo ? 'Inactivo' : 'Activo';
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     try {
       await widget.service.cambiarEstado(materia, nuevo);
@@ -778,7 +865,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar materia prima'),
+        title: const Text('Eliminar ingrediente'),
         content: Text(
           '¿Seguro que quieres eliminar "${materia.nombre}"? '
           'Esta acción no se puede deshacer.',
@@ -800,6 +887,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
     );
     if (confirmar != true || !mounted) return;
 
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -807,7 +895,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
       if (!mounted) return;
       Navigator.pop(context);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Materia prima eliminada.')),
+        const SnackBar(content: Text('Ingrediente eliminado.')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -829,13 +917,13 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
               return _cuerpoSimple(
                 _MensajeEstado(
                   icono: Icons.error_outline,
-                  texto: 'Error al leer la materia prima: ${snapshot.error}',
+                  texto: 'Error al leer el ingrediente: ${snapshot.error}',
                 ),
               );
             }
             if (snapshot.connectionState == ConnectionState.waiting) {
               return _cuerpoSimple(
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
                   child: Center(
                     child: CircularProgressIndicator(color: _colorAcento),
@@ -848,7 +936,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
               return _cuerpoSimple(
                 const _MensajeEstado(
                   icono: Icons.search_off,
-                  texto: 'Esta materia prima ya no existe.',
+                  texto: 'Este ingrediente ya no existe.',
                 ),
               );
             }
@@ -861,9 +949,9 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
 
   Widget _botonAtras() => TextButton.icon(
         onPressed: () => Navigator.pop(context),
-        icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-        label: const Text(
-          'Materia Prima',
+        icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+        label: Text(
+          'Ingredientes',
           style: TextStyle(color: _textoOscuro),
         ),
         style: TextButton.styleFrom(
@@ -894,7 +982,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Apariencia.instance.superficie,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: _colorBorde),
             ),
@@ -905,14 +993,14 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Stock actual',
                         style: TextStyle(fontSize: 12, color: _textoClaro),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         m.nombre,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                           color: _textoOscuro,
@@ -937,7 +1025,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
           ),
           const SizedBox(height: 22),
 
-          const Text(
+          Text(
             'Información',
             style: TextStyle(
               fontSize: 15,
@@ -950,14 +1038,14 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Apariencia.instance.superficie,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: _colorBorde),
             ),
             child: Column(
               children: [
                 _FilaInfo('Id', m.codigo),
-                _FilaInfo('Nombre de materia prima', m.nombre),
+                _FilaInfo('Nombre del ingrediente', m.nombre),
                 _FilaInfo('Cantidad en stock', m.cantidad.toStringAsFixed(2)),
                 _FilaInfo('Unidad de medida', m.unidadMedida),
                 _FilaInfo('Sucursal', m.sucursal),
@@ -970,7 +1058,7 @@ class _DetalleMateriaPrimaScreenState extends State<DetalleMateriaPrimaScreen> {
           if (Permisos.instance.puedeEditarIngredientes) ...[
           const SizedBox(height: 22),
 
-          const Text(
+          Text(
             'Acciones',
             style: TextStyle(
               fontSize: 15,
@@ -1033,14 +1121,14 @@ class _FilaInfo extends StatelessWidget {
       decoration: BoxDecoration(
         border: ultima
             ? null
-            : const Border(bottom: BorderSide(color: _colorBorde)),
+            : Border(bottom: BorderSide(color: _colorBorde)),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
               etiqueta,
-              style: const TextStyle(fontSize: 13, color: _textoClaro),
+              style: TextStyle(fontSize: 13, color: _textoClaro),
             ),
           ),
           const SizedBox(width: 12),
@@ -1048,7 +1136,7 @@ class _FilaInfo extends StatelessWidget {
             child: Text(
               valor,
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
                 color: _textoOscuro,

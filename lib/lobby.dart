@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'Chino/vistas/AppDrawer.dart' show cerrarSesion, ModuloApp;
+import 'Chino/controladores/apariencia_service.dart';
 import 'Chino/controladores/permisos_service.dart';
 import 'Chino/vistas/Auditoria.dart';
 import 'Chino/vistas/MateriaPrima.dart';
@@ -25,11 +26,13 @@ class LobbyScreen extends StatefulWidget {
 
   final String userName;
 
-  static const burgundy = Color(0xFF8D141B);
-  static const burgundyDark = Color(0xFF681015);
-  static const bg = Color(0xFFFAF6EE);
+  // Siguen la apariencia elegida en Configuración
+  static Color get burgundy => Apariencia.instance.acento;
+  static Color get burgundyDark => Apariencia.instance.fondoMenu;
+
+  static Color get bg => Apariencia.instance.fondo;
   static const amber = Color(0xFFD27A0A);
-  static const textDark = Color(0xFF2E2927);
+  static Color get textDark => Apariencia.instance.textoPrincipal;
 
   @override
   State<LobbyScreen> createState() => _LobbyScreenState();
@@ -48,12 +51,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
   void initState() {
     super.initState();
     Permisos.instance.addListener(_alCambiarPermisos);
+    Apariencia.instance.addListener(_alCambiarApariencia);
     _sincronizarServicio();
   }
 
   @override
   void dispose() {
     Permisos.instance.removeListener(_alCambiarPermisos);
+    Apariencia.instance.removeListener(_alCambiarApariencia);
     _servicio.detener();
     super.dispose();
   }
@@ -71,6 +76,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
       _servicio.detener();
       _datos = const LobbyDatos();
     }
+  }
+
+  // Repinta el lobby cuando cambian colores o letra
+  void _alCambiarApariencia() {
+    if (mounted) setState(() {});
   }
 
   void _alCambiarPermisos() {
@@ -180,6 +190,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
       abrir: selectSection,
       abrirPantalla: _abrirModuloChino,
       nuevaVenta: _nuevaVenta,
+      cambiarFiltros: _servicio.aplicarFiltros,
+      temaClave:
+          '${Apariencia.instance.acentoId}|${Apariencia.instance.fondoId}|'
+          '${Apariencia.instance.textoId}',
       child: LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -218,6 +232,8 @@ class _LobbyScope extends InheritedWidget {
     required this.abrir,
     required this.abrirPantalla,
     required this.nuevaVenta,
+    required this.cambiarFiltros,
+    required this.temaClave,
     required super.child,
   });
 
@@ -231,6 +247,12 @@ class _LobbyScope extends InheritedWidget {
 
   final VoidCallback nuevaVenta;
 
+  // Cambiar filtros del resumen
+  final ValueChanged<LobbyFiltros> cambiarFiltros;
+
+  // Cambia cuando se elige otro color o tamaño de letra
+  final String temaClave;
+
   static _LobbyScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<_LobbyScope>();
     assert(scope != null, 'Falta _LobbyScope sobre este widget');
@@ -238,7 +260,8 @@ class _LobbyScope extends InheritedWidget {
   }
 
   @override
-  bool updateShouldNotify(_LobbyScope old) => datos != old.datos;
+  bool updateShouldNotify(_LobbyScope old) =>
+      datos != old.datos || temaClave != old.temaClave;
 }
 
 // Widget con tap y cursor
@@ -289,7 +312,7 @@ List<_AccesoData> _accesosRapidos(_LobbyScope s) {
         () => s.abrir(3)),
     if (!admin)
       _AccesoData(Icons.kitchen_outlined, 'Ingredientes',
-          'Consultar materia prima', () => s.abrir(8)),
+          'Consultar ingredientes', () => s.abrir(8)),
     if (permisos.puedeVer(ModuloApp.usuarios))
       _AccesoData(Icons.people_outline, 'Usuarios', 'Personal y roles',
           () => s.abrir(4)),
@@ -303,6 +326,15 @@ List<_AccesoData> _accesosRapidos(_LobbyScope s) {
         () => s.abrir(6)),
   ];
 }
+
+// Altura fija que crece con el tamaño de letra de Configuración
+double _esc(BuildContext context, double base) {
+  final escalada = MediaQuery.textScalerOf(context).scale(base);
+  return escalada > base ? escalada : base;
+}
+
+// Pantalla baja (celular de lado): se reducen alturas y márgenes
+bool _corto(BuildContext context) => MediaQuery.sizeOf(context).height < 500;
 
 String _saludo() {
   final h = DateTime.now().hour;
@@ -351,20 +383,24 @@ class _ErrorBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFDECEA),
+        color: Apariencia.instance.errorSuave,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF3C0BB)),
+        border: Border.all(
+            color: Apariencia.instance.oscuro
+                ? const Color(0xFF6B3A36)
+                : const Color(0xFFF3C0BB),
+          ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline,
+          Icon(Icons.error_outline,
               color: LobbyScreen.burgundy, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               mensaje,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 height: 1.4,
                 color: LobbyScreen.textDark,
@@ -476,12 +512,9 @@ class _MobileLobby extends StatelessWidget {
             ),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(
-                  16,
-                  20,
-                  16,
-                  30,
-                ),
+                padding: _corto(context)
+                    ? const EdgeInsets.fromLTRB(16, 12, 16, 20)
+                    : const EdgeInsets.fromLTRB(16, 20, 16, 30),
                 child: _MobileDashboard(
                   userName: userName,
                 ),
@@ -510,22 +543,24 @@ class _SideBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: compact ? 92 : 250,
-      color: LobbyScreen.burgundy,
+      color: Apariencia.instance.oscuro
+          ? LobbyScreen.burgundyDark
+          : LobbyScreen.burgundy,
       child: SafeArea(
         child: Column(
           children: [
             Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: compact ? 10 : 20,
-                vertical: 20,
+                vertical: _corto(context) ? 8 : 20,
               ),
               child: compact
                   ? CircleAvatar(
                       radius: 22,
-                      backgroundColor: Colors.white,
+                      backgroundColor: Apariencia.instance.superficie,
                       child: ClipOval(
                         child: Image.asset(
-                          'assets/images/romero.jpeg',
+                          'assets/images/romero.png',
                           width: 44,
                           height: 44,
                           fit: BoxFit.cover,
@@ -536,10 +571,10 @@ class _SideBar extends StatelessWidget {
                       children: [
                         CircleAvatar(
                           radius: 22,
-                          backgroundColor: Colors.white,
+                          backgroundColor: Apariencia.instance.superficie,
                           child: ClipOval(
                             child: Image.asset(
-                              'assets/images/romero.jpeg',
+                              'assets/images/romero.png',
                               width: 44,
                               height: 44,
                               fit: BoxFit.cover,
@@ -562,7 +597,7 @@ class _SideBar extends StatelessWidget {
                               Text(
                                 'ROMERO',
                                 style: TextStyle(
-                                  color: Color(0xFFE6C5C7),
+                                  color: Colors.white70,
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -575,7 +610,7 @@ class _SideBar extends StatelessWidget {
             ),
             const Divider(
               height: 1,
-              color: Color(0xFFAA454A),
+              color: Colors.white24,
             ),
             const SizedBox(height: 14),
             Expanded(
@@ -657,7 +692,7 @@ class _SideBar extends StatelessWidget {
                 horizontal: compact ? 10 : 16,
               ),
               child: const Divider(
-                color: Color(0xFFAA454A),
+                color: Colors.white24,
               ),
             ),
             _SideItem(
@@ -702,7 +737,7 @@ class _SideItem extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 12,
-        vertical: 4,
+        vertical: _corto(context) ? 2 : 4,
       ),
       child: Material(
         color: active
@@ -713,7 +748,7 @@ class _SideItem extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            height: 46,
+            height: _esc(context, _corto(context) ? 38 : 46),
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 0 : 14,
             ),
@@ -762,7 +797,10 @@ class _WebDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return SafeArea(
+      left: false,
+      top: false,
+      child: Column(
       children: [
         _WebTopBar(
           userName: userName,
@@ -770,7 +808,7 @@ class _WebDashboard extends StatelessWidget {
         Expanded(
           child: SingleChildScrollView(
             padding: EdgeInsets.all(
-              desktop ? 28 : 20,
+              _corto(context) ? 14 : (desktop ? 28 : 20),
             ),
             child: Center(
               child: ConstrainedBox(
@@ -786,6 +824,7 @@ class _WebDashboard extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }
@@ -800,21 +839,21 @@ class _WebTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 76,
+      height: _corto(context) ? 56 : 76,
       padding: const EdgeInsets.symmetric(
         horizontal: 28,
       ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: Apariencia.instance.superficie,
         border: Border(
           bottom: BorderSide(
-            color: Color(0xFFEEE7E2),
+            color: Apariencia.instance.bordeSuave,
           ),
         ),
       ),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Lobby',
               style: TextStyle(
@@ -826,25 +865,7 @@ class _WebTopBar extends StatelessWidget {
           ),
           const CampanaSolicitudes(),
           const SizedBox(width: 8),
-          CircleAvatar(
-            radius: 19,
-            backgroundColor: LobbyScreen.burgundy,
-            child: Text(
-              _initials(userName),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            userName,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: LobbyScreen.textDark,
-            ),
-          ),
+          _MenuCuenta(userName: userName, conNombre: true),
         ],
       ),
     );
@@ -864,21 +885,25 @@ class _WebDashboardBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final scope = _LobbyScope.of(context);
     final d = scope.datos;
+    final corto = _corto(context);
 
     final tarjetas = <Widget>[
       _WebSummaryCard(
+        compacto: corto,
         value: _valor(d.cargandoVentas, _fmtMoneda(d.ingresosHoy)),
         label: 'Ingresos',
         color: LobbyScreen.burgundy,
         onTap: () => scope.abrir(1),
       ),
       _WebSummaryCard(
+        compacto: corto,
         value: _valor(d.cargandoVentas, '${d.ventasHoy}'),
         label: 'Ventas',
         color: LobbyScreen.burgundy,
         onTap: () => scope.abrir(1),
       ),
       _WebSummaryCard(
+        compacto: corto,
         value: _valor(d.cargandoProductos, '${d.stockBajo.length}'),
         label: 'Stock bajo',
         color: LobbyScreen.amber,
@@ -895,8 +920,8 @@ class _WebDashboardBody extends StatelessWidget {
       children: [
         Text(
           '${_saludo()}, $userName',
-          style: const TextStyle(
-            fontSize: 28,
+          style: TextStyle(
+            fontSize: corto ? 20 : 28,
             fontWeight: FontWeight.w900,
             color: LobbyScreen.textDark,
           ),
@@ -906,14 +931,12 @@ class _WebDashboardBody extends StatelessWidget {
           _ErrorBanner(d.error!),
         ],
         if (verPanel) ...[
-        const SizedBox(height: 24),
-        const _SectionTitle(
-          title: 'RESUMEN DE HOY',
-        ),
-        const SizedBox(height: 14),
+        SizedBox(height: corto ? 14 : 24),
+        const _EncabezadoResumen(),
+        SizedBox(height: corto ? 10 : 14),
         LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth >= 820) {
+            if (constraints.maxWidth >= 480) {
               return Row(
                 children: [
                   Expanded(child: tarjetas[0]),
@@ -942,16 +965,19 @@ class _WebDashboardBody extends StatelessWidget {
           title: 'ACCESOS RÁPIDOS',
         ),
         const SizedBox(height: 14),
-        GridView.count(
-          crossAxisCount: 2,
+        GridView(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 14,
-          mainAxisSpacing: 14,
-          childAspectRatio: desktop ? 2.8 : 2.2,
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 360,
+            mainAxisExtent: _esc(context, corto ? 64 : 76),
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+          ),
           children: [
             for (final a in accesos)
               _WebQuickCard(
+                compacto: corto,
                 icon: a.icon,
                 title: a.title,
                 subtitle: a.subtitle,
@@ -992,28 +1018,30 @@ class _WebSummaryCard extends StatelessWidget {
     required this.label,
     required this.color,
     this.onTap,
+    this.compacto = false,
   });
 
   final String value;
   final String label;
   final Color color;
   final VoidCallback? onTap;
+  final bool compacto;
 
   @override
   Widget build(BuildContext context) {
-    final tarjeta = _tarjeta();
+    final tarjeta = _tarjeta(context);
     return onTap == null ? tarjeta : _Tocable(onTap: onTap!, child: tarjeta);
   }
 
-  Widget _tarjeta() {
+  Widget _tarjeta(BuildContext context) {
     return Container(
-      height: 116,
-      padding: const EdgeInsets.all(20),
+      height: _esc(context, compacto ? 84 : 116),
+      padding: EdgeInsets.all(compacto ? 12 : 20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Apariencia.instance.superficie,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: const Color(0xFFF0E9E4),
+          color: Apariencia.instance.bordeSuave,
         ),
       ),
       child: Column(
@@ -1024,16 +1052,16 @@ class _WebSummaryCard extends StatelessWidget {
             value,
             style: TextStyle(
               color: color,
-              fontSize: 26,
+              fontSize: compacto ? 22 : 26,
               fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
-              color: Colors.black54,
+              color: Apariencia.instance.textoClaro,
             ),
           ),
         ],
@@ -1048,27 +1076,29 @@ class _WebQuickCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.compacto = false,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool compacto;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: Apariencia.instance.superficie,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(compacto ? 8 : 16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: const Color(0xFFF0E9E4),
+              color: Apariencia.instance.bordeSuave,
             ),
           ),
           child: Row(
@@ -1103,17 +1133,17 @@ class _WebQuickCard extends StatelessWidget {
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
-                        color: Colors.black54,
+                        color: Apariencia.instance.textoClaro,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(
+              Icon(
                 Icons.chevron_right,
-                color: Colors.black38,
+                color: Apariencia.instance.hint,
               ),
             ],
           ),
@@ -1134,15 +1164,15 @@ class _MobileTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 68,
+      height: _corto(context) ? 56 : 68,
       padding: const EdgeInsets.symmetric(
         horizontal: 12,
       ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: Apariencia.instance.superficie,
         border: Border(
           bottom: BorderSide(
-            color: Color(0xFFECE5E0),
+            color: Apariencia.instance.bordeSuave,
           ),
         ),
       ),
@@ -1154,7 +1184,7 @@ class _MobileTopBar extends StatelessWidget {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF5EEEE),
+                  color: LobbyScreen.burgundy.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(11),
                 ),
                 child: IconButton(
@@ -1162,7 +1192,7 @@ class _MobileTopBar extends StatelessWidget {
                   onPressed: () {
                     Scaffold.of(context).openDrawer();
                   },
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.menu_rounded,
                     color: LobbyScreen.burgundy,
                     size: 24,
@@ -1174,10 +1204,10 @@ class _MobileTopBar extends StatelessWidget {
           const SizedBox(width: 10),
           CircleAvatar(
             radius: 19,
-            backgroundColor: Colors.white,
+            backgroundColor: Apariencia.instance.superficie,
             child: ClipOval(
               child: Image.asset(
-                'assets/images/romero.jpeg',
+                'assets/images/romero.png',
                 width: 38,
                 height: 38,
                 fit: BoxFit.cover,
@@ -1185,7 +1215,7 @@ class _MobileTopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 9),
-          const Expanded(
+          Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1205,7 +1235,7 @@ class _MobileTopBar extends StatelessWidget {
                   'Panel principal',
                   style: TextStyle(
                     fontSize: 9,
-                    color: Colors.black54,
+                    color: Apariencia.instance.textoClaro,
                   ),
                 ),
               ],
@@ -1218,18 +1248,7 @@ class _MobileTopBar extends StatelessWidget {
               minHeight: 38,
             ),
           ),
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: LobbyScreen.burgundy,
-            child: Text(
-              _initials(userName),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
+          _MenuCuenta(userName: userName),
         ],
       ),
     );
@@ -1284,10 +1303,10 @@ class _MobileDrawer extends StatelessWidget {
                 children: [
                   CircleAvatar(
                     radius: 24,
-                    backgroundColor: Colors.white,
+                    backgroundColor: Apariencia.instance.superficie,
                     child: ClipOval(
                       child: Image.asset(
-                        'assets/images/romero.jpeg',
+                        'assets/images/romero.png',
                         width: 48,
                         height: 48,
                         fit: BoxFit.cover,
@@ -1315,7 +1334,7 @@ class _MobileDrawer extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: Color(0xFFE6C6C8),
+                            color: Colors.white70,
                             fontSize: 10,
                           ),
                         ),
@@ -1347,7 +1366,7 @@ class _MobileDrawer extends StatelessWidget {
                 child: Text(
                   'MENÚ PRINCIPAL',
                   style: TextStyle(
-                    color: Color(0xFFDAB7B9),
+                    color: Colors.white60,
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1,
@@ -1567,8 +1586,8 @@ class _MobileDashboard extends StatelessWidget {
       children: [
         Text(
           '${_saludo()}, $userName',
-          style: const TextStyle(
-            fontSize: 23,
+          style: TextStyle(
+            fontSize: _corto(context) ? 19 : 23,
             fontWeight: FontWeight.w900,
             color: LobbyScreen.textDark,
           ),
@@ -1578,9 +1597,9 @@ class _MobileDashboard extends StatelessWidget {
           verPanel
               ? 'Aquí tienes el resumen de Panadería Romero.'
               : 'Estos son tus accesos en Panadería Romero.',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
-            color: Colors.black54,
+            color: Apariencia.instance.textoClaro,
           ),
         ),
         if (d.error != null) ...[
@@ -1588,38 +1607,89 @@ class _MobileDashboard extends StatelessWidget {
           _ErrorBanner(d.error!),
         ],
         if (verPanel) ...[
-        const SizedBox(height: 24),
-        const _SectionTitle(
-          title: 'RESUMEN DE HOY',
-        ),
+        SizedBox(height: _corto(context) ? 14 : 24),
+        const _EncabezadoResumen(),
         const SizedBox(height: 12),
-        _MobileIncomeCard(
-          value: _valor(d.cargandoVentas, _fmtMoneda(d.ingresosHoy)),
-          onTap: () => scope.abrir(1),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _MobileMetricCard(
-                icon: Icons.receipt_long_outlined,
-                value: _valor(d.cargandoVentas, '${d.ventasHoy}'),
-                label: 'Ventas',
-                color: LobbyScreen.burgundy,
-                onTap: () => scope.abrir(1),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _MobileMetricCard(
-                icon: Icons.warning_amber_rounded,
-                value: _valor(d.cargandoProductos, '${d.stockBajo.length}'),
-                label: 'Stock bajo',
-                color: LobbyScreen.amber,
-                onTap: () => scope.abrir(3),
-              ),
-            ),
-          ],
+        LayoutBuilder(
+          builder: (context, box) {
+            final ingresos =
+                _valor(d.cargandoVentas, _fmtMoneda(d.ingresosHoy));
+            final ventas = _valor(d.cargandoVentas, '${d.ventasHoy}');
+            final bajo =
+                _valor(d.cargandoProductos, '${d.stockBajo.length}');
+
+            // Celular de lado: las tres tarjetas en una fila
+            if (box.maxWidth >= 520) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: _WebSummaryCard(
+                      compacto: true,
+                      value: ingresos,
+                      label: 'Ingresos',
+                      color: LobbyScreen.burgundy,
+                      onTap: () => scope.abrir(1),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _WebSummaryCard(
+                      compacto: true,
+                      value: ventas,
+                      label: 'Ventas',
+                      color: LobbyScreen.burgundy,
+                      onTap: () => scope.abrir(1),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _WebSummaryCard(
+                      compacto: true,
+                      value: bajo,
+                      label: 'Stock bajo',
+                      color: LobbyScreen.amber,
+                      onTap: () => scope.abrir(3),
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            return Column(
+              children: [
+                _MobileIncomeCard(
+                  label:
+                      'Ingresos · ${d.filtros.periodo.etiqueta.toLowerCase()}',
+                  value: ingresos,
+                  onTap: () => scope.abrir(1),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MobileMetricCard(
+                        icon: Icons.receipt_long_outlined,
+                        value: ventas,
+                        label: 'Ventas',
+                        color: LobbyScreen.burgundy,
+                        onTap: () => scope.abrir(1),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MobileMetricCard(
+                        icon: Icons.warning_amber_rounded,
+                        value: bajo,
+                        label: 'Stock bajo',
+                        color: LobbyScreen.amber,
+                        onTap: () => scope.abrir(3),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
         ],
         const SizedBox(height: 26),
@@ -1627,20 +1697,48 @@ class _MobileDashboard extends StatelessWidget {
           title: 'ACCESOS RÁPIDOS',
         ),
         const SizedBox(height: 12),
-        for (var i = 0; i < accesos.length; i++) ...[
-          if (i > 0) const SizedBox(height: 10),
-          _MobileQuickCard(
-            icon: accesos[i].icon,
-            title: accesos[i].title,
-            subtitle: accesos[i].subtitle,
-            onTap: accesos[i].onTap,
+        GridView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 420,
+            mainAxisExtent: _esc(context, 72),
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
           ),
-        ],
+          children: [
+            for (final a in accesos)
+              _MobileQuickCard(
+                icon: a.icon,
+                title: a.title,
+                subtitle: a.subtitle,
+                onTap: a.onTap,
+              ),
+          ],
+        ),
         if (verPanel) ...[
         const SizedBox(height: 22),
-        const _StockAlert(),
-        const SizedBox(height: 12),
-        const _RecentActivity(),
+        LayoutBuilder(
+          builder: (context, box) {
+            if (box.maxWidth >= 600) {
+              return const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _StockAlert()),
+                  SizedBox(width: 12),
+                  Expanded(child: _RecentActivity()),
+                ],
+              );
+            }
+            return const Column(
+              children: [
+                _StockAlert(),
+                SizedBox(height: 12),
+                _RecentActivity(),
+              ],
+            );
+          },
+        ),
         ],
 
       ],
@@ -1649,8 +1747,13 @@ class _MobileDashboard extends StatelessWidget {
 }
 
 class _MobileIncomeCard extends StatelessWidget {
-  const _MobileIncomeCard({required this.value, required this.onTap});
+  const _MobileIncomeCard({
+    required this.value,
+    required this.onTap,
+    this.label = 'Ingresos de hoy',
+  });
 
+  final String label;
   final String value;
   final VoidCallback onTap;
 
@@ -1662,10 +1765,10 @@ class _MobileIncomeCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Apariencia.instance.superficie,
           borderRadius: BorderRadius.circular(17),
           border: Border.all(
-            color: const Color(0xFFF0E9E4),
+            color: Apariencia.instance.bordeSuave,
           ),
         ),
         child: Row(
@@ -1677,7 +1780,7 @@ class _MobileIncomeCard extends StatelessWidget {
                 color: LobbyScreen.burgundy.withOpacity(0.08),
                 borderRadius: BorderRadius.circular(13),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.payments_outlined,
                 color: LobbyScreen.burgundy,
               ),
@@ -1689,18 +1792,18 @@ class _MobileIncomeCard extends StatelessWidget {
                 children: [
                   Text(
                     value,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: LobbyScreen.burgundy,
                       fontSize: 24,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Ingresos de hoy',
+                  Text(
+                    label,
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.black54,
+                      color: Apariencia.instance.textoClaro,
                     ),
                   ),
                 ],
@@ -1733,13 +1836,13 @@ class _MobileMetricCard extends StatelessWidget {
     return _Tocable(
       onTap: onTap,
       child: Container(
-        height: 126,
+        height: _esc(context, 126),
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Apariencia.instance.superficie,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: const Color(0xFFF0E9E4),
+            color: Apariencia.instance.bordeSuave,
           ),
         ),
         child: Column(
@@ -1764,9 +1867,9 @@ class _MobileMetricCard extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
-                color: Colors.black54,
+                color: Apariencia.instance.textoClaro,
               ),
             ),
           ],
@@ -1792,7 +1895,7 @@ class _MobileQuickCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: Apariencia.instance.superficie,
       borderRadius: BorderRadius.circular(15),
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
@@ -1806,7 +1909,7 @@ class _MobileQuickCard extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(15),
             border: Border.all(
-              color: const Color(0xFFF0E9E4),
+              color: Apariencia.instance.bordeSuave,
             ),
           ),
           child: Row(
@@ -1832,7 +1935,7 @@ class _MobileQuickCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
                         color: LobbyScreen.textDark,
@@ -1843,8 +1946,8 @@ class _MobileQuickCard extends StatelessWidget {
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.black54,
+                      style: TextStyle(
+                        color: Apariencia.instance.textoClaro,
                         fontSize: 10,
                       ),
                     ),
@@ -1852,9 +1955,9 @@ class _MobileQuickCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(
+              Icon(
                 Icons.chevron_right,
-                color: Colors.black38,
+                color: Apariencia.instance.hint,
                 size: 20,
               ),
             ],
@@ -1876,7 +1979,7 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: const TextStyle(
+      style: TextStyle(
         color: LobbyScreen.textDark,
         fontSize: 12,
         fontWeight: FontWeight.w800,
@@ -1921,7 +2024,9 @@ class _StockAlert extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(17),
         decoration: BoxDecoration(
-          color: enOrden ? const Color(0xFFE8F5E9) : const Color(0xFFFFF1D2),
+          color: enOrden
+            ? Apariencia.instance.exitoSuave
+            : Apariencia.instance.aviso,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
@@ -1948,7 +2053,7 @@ class _StockAlert extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     detalle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
                       color: LobbyScreen.textDark,
                     ),
@@ -1959,10 +2064,10 @@ class _StockAlert extends StatelessWidget {
                       '$nombres$resto',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         height: 1.4,
-                        color: Colors.black54,
+                        color: Apariencia.instance.textoClaro,
                       ),
                     ),
                   ],
@@ -1992,10 +2097,10 @@ class _RecentActivity extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Apariencia.instance.superficie,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFF0E9E4),
+          color: Apariencia.instance.bordeSuave,
         ),
       ),
       child: Column(
@@ -2014,7 +2119,7 @@ class _RecentActivity extends StatelessWidget {
               ),
               _Tocable(
                 onTap: () => scope.abrir(7),
-                child: const Text(
+                child: Text(
                   'Ver todo →',
                   style: TextStyle(
                     fontSize: 10,
@@ -2038,9 +2143,9 @@ class _RecentActivity extends StatelessWidget {
               ),
             )
           else if (d.actividad.isEmpty)
-            const Text(
+            Text(
               'Todavía no hay actividad registrada.',
-              style: TextStyle(fontSize: 10, color: Colors.black54),
+              style: TextStyle(fontSize: 10, color: Apariencia.instance.textoClaro),
             )
           else
             for (final e in d.actividad)
@@ -2098,7 +2203,7 @@ class _FilaActividad extends StatelessWidget {
                         : evento.descripcion,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: LobbyScreen.textDark,
@@ -2109,16 +2214,16 @@ class _FilaActividad extends StatelessWidget {
                     partes.join(' • '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
-                      color: Colors.black54,
+                      color: Apariencia.instance.textoClaro,
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 6),
-            const Icon(Icons.chevron_right, size: 16, color: Colors.black38),
+            Icon(Icons.chevron_right, size: 16, color: Apariencia.instance.hint),
           ],
         ),
       ),
@@ -2141,4 +2246,318 @@ String _initials(String value) {
       .take(2)
       .map((e) => e[0].toUpperCase())
       .join();
+}
+
+// Título del resumen + filtros (una fila ancha o dos filas angostas)
+class _EncabezadoResumen extends StatelessWidget {
+  const _EncabezadoResumen();
+
+  @override
+  Widget build(BuildContext context) {
+    final f = _LobbyScope.of(context).datos.filtros;
+    final titulo = _SectionTitle(
+      title: 'RESUMEN · ${f.periodo.etiqueta.toUpperCase()}'
+          '${f.sucursal.isEmpty ? '' : ' · ${f.sucursal.toUpperCase()}'}',
+    );
+
+    return LayoutBuilder(
+      builder: (context, box) {
+        if (box.maxWidth >= 640) {
+          return Row(
+            children: [
+              Flexible(child: titulo),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _FiltrosLobby(),
+                ),
+              ),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            titulo,
+            const SizedBox(height: 8),
+            const _FiltrosLobby(),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// Desplegables: sucursal y periodo
+class _FiltrosLobby extends StatelessWidget {
+  const _FiltrosLobby();
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = _LobbyScope.of(context);
+    final d = scope.datos;
+    final f = d.filtros;
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _FiltroDesplegable(
+          icono: Icons.storefront_outlined,
+          tooltip: 'Sucursal',
+          valor: f.sucursal,
+          activo: f.sucursal.isNotEmpty,
+          opciones: {
+            '': 'Todas',
+            for (final s in d.sucursales) s: s,
+          },
+          onChanged: (v) => scope.cambiarFiltros(f.copyWith(sucursal: v)),
+        ),
+        _FiltroDesplegable(
+          icono: Icons.calendar_today_outlined,
+          tooltip: 'Periodo',
+          valor: f.periodo.name,
+          activo: f.periodo != PeriodoLobby.hoy,
+          opciones: {
+            for (final p in PeriodoLobby.values) p.name: p.etiqueta,
+          },
+          onChanged: (v) => scope.cambiarFiltros(
+            f.copyWith(periodo: PeriodoLobby.values.byName(v)),
+          ),
+        ),
+        if (!f.esPorDefecto)
+          Tooltip(
+            message: 'Quitar filtros',
+            child: _Tocable(
+              onTap: () => scope.cambiarFiltros(const LobbyFiltros()),
+              child: SizedBox(
+                width: 32,
+                height: 36,
+                child: Icon(
+                  Icons.filter_alt_off_outlined,
+                  size: 20,
+                  color: LobbyScreen.burgundy,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// Desplegable compacto: icono + valor
+class _FiltroDesplegable extends StatelessWidget {
+  const _FiltroDesplegable({
+    required this.icono,
+    required this.tooltip,
+    required this.valor,
+    required this.activo,
+    required this.opciones,
+    required this.onChanged,
+  });
+
+  final IconData icono;
+  final String tooltip;
+  final String valor;
+  final bool activo;
+
+  // clave -> texto (la primera es la opción por defecto)
+  final Map<String, String> opciones;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // Si el valor ya no existe en la lista, se muestra la primera
+    final actual = opciones.containsKey(valor) ? valor : opciones.keys.first;
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        height: _esc(context, 36),
+        padding: const EdgeInsets.only(left: 10, right: 6),
+        decoration: BoxDecoration(
+          color: Apariencia.instance.superficie,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: activo
+                ? LobbyScreen.burgundy.withOpacity(0.55)
+                : Apariencia.instance.borde,
+          ),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: actual,
+            isDense: true,
+            borderRadius: BorderRadius.circular(12),
+            dropdownColor: Apariencia.instance.superficie,
+            icon: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: Apariencia.instance.textoClaro,
+            ),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: LobbyScreen.textDark,
+            ),
+            selectedItemBuilder: (_) => [
+              for (final e in opciones.entries)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icono, size: 16, color: LobbyScreen.burgundy),
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 110),
+                      child: Text(
+                        e.value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+            items: [
+              for (final e in opciones.entries)
+                DropdownMenuItem<String>(
+                  value: e.key,
+                  child: Text(e.value),
+                ),
+            ],
+            onChanged: (v) {
+              if (v != null) onChanged(v);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Círculo de la cuenta: abre un menú con los datos del usuario
+class _MenuCuenta extends StatelessWidget {
+  const _MenuCuenta({required this.userName, this.conNombre = false});
+
+  final String userName;
+  final bool conNombre;
+
+  static String _rol() {
+    final p = Permisos.instance;
+    if (p.esAdmin) return 'Administrador';
+    return p.esEncargado ? 'Encargado' : 'Vendedor';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = _LobbyScope.of(context);
+    final p = Permisos.instance;
+    final detalle = [
+      _rol(),
+      if (p.sucursal.isNotEmpty) p.sucursal,
+    ].join(' · ');
+
+    final avatar = CircleAvatar(
+      radius: conNombre ? 19 : 18,
+      backgroundColor: LobbyScreen.burgundy,
+      child: Text(
+        _initials(userName),
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: conNombre ? 14 : 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+
+    return PopupMenuButton<String>(
+      tooltip: 'Mi cuenta',
+      padding: EdgeInsets.zero,
+      offset: const Offset(0, 46),
+      color: Apariencia.instance.superficie,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: (valor) {
+        if (valor == 'config') {
+          scope.abrir(_LobbyScreenState._indiceConfiguracion);
+        } else if (valor == 'salir') {
+          cerrarSesion(context);
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                userName,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: LobbyScreen.textDark,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                detalle,
+                style: TextStyle(fontSize: 12, color: Apariencia.instance.textoClaro),
+              ),
+              if (p.correo.isNotEmpty)
+                Text(
+                  p.correo,
+                  style: TextStyle(fontSize: 11, color: Apariencia.instance.hint),
+                ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'config',
+          child: Row(
+            children: [
+              Icon(Icons.settings_outlined, size: 19),
+              SizedBox(width: 10),
+              Text('Configuración'),
+            ],
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'salir',
+          child: Row(
+            children: [
+              Icon(Icons.logout, size: 19),
+              SizedBox(width: 10),
+              Text('Cerrar sesión'),
+            ],
+          ),
+        ),
+      ],
+      child: conNombre
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                avatar,
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 160),
+                  child: Text(
+                    userName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: LobbyScreen.textDark,
+                    ),
+                  ),
+                ),
+                Icon(Icons.arrow_drop_down, color: Apariencia.instance.textoClaro),
+              ],
+            )
+          : avatar,
+    );
+  }
 }

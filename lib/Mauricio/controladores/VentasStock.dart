@@ -32,11 +32,20 @@ class _Ajuste {
   _Ajuste(this.ref, this.nombre);
 }
 
-// Registrar venta y descontar stock
-Future<String> registrarVentaConStock(CRUDVentas venta) async {
-  final ventaRef = VentasRef.doc(); // id generado localmente
+// La venta ya estaba guardada (por ejemplo, un segundo toque en Guardar)
+class VentaDuplicadaException extends VentaStockException {
+  const VentaDuplicadaException()
+      : super('Esta venta ya estaba registrada. No se guardó otra vez.');
+}
+
+// Registrar venta y descontar stock.
+// [ventaId] debe ser el mismo en todos los intentos de una misma venta: si el
+// documento ya existe, no se vuelve a guardar ni a descontar el stock.
+Future<String> registrarVentaConStock(CRUDVentas venta, {String? ventaId}) async {
+  final ventaRef = ventaId == null ? VentasRef.doc() : VentasRef.doc(ventaId);
   await _ejecutar(
     codigoVenta: venta.codigoV,
+    ventaNuevaRef: ventaRef,
     descontar: _lineas(venta.productos, venta.sucursalU),
     devolver: const [],
     // Guarda también quién vendió
@@ -57,6 +66,11 @@ Future<void> actualizarVentaConStock(
   required String sucursalAnterior,
 }) async {
   final ventaRef = VentasRef.doc(venta.id);
+  if (await _stockYaDevuelto(ventaRef)) {
+    throw const VentaStockException(
+      'Una venta anulada no se puede editar. Reactívala primero.',
+    );
+  }
   await _ejecutar(
     codigoVenta: venta.codigoV,
     descontar: _lineas(venta.productos, venta.sucursalU),
@@ -68,12 +82,85 @@ Future<void> actualizarVentaConStock(
 // Eliminar venta y devolver stock
 Future<void> eliminarVentaConStock(CRUDVentas venta) async {
   final ventaRef = VentasRef.doc(venta.id);
+  // Si la venta ya estaba anulada, su stock ya volvió: no se devuelve otra vez
+  final yaDevuelto = await _stockYaDevuelto(ventaRef);
+  await _ejecutar(
+    codigoVenta: venta.codigoV,
+    descontar: const [],
+    devolver: yaDevuelto ? const [] : _lineas(venta.productos, venta.sucursalU),
+    ventaVerificarRef: ventaRef,
+    verificarVenta: (data) {
+      if (data == null) {
+        throw const VentaStockException('Esta venta ya fue eliminada.');
+      }
+    },
+    escribirVenta: (tx) => tx.delete(ventaRef),
+  );
+}
+
+// Anular venta: devuelve el stock y la deja Inactiva (queda en el historial)
+Future<void> anularVentaConStock(CRUDVentas venta) async {
+  final ventaRef = VentasRef.doc(venta.id);
+  if (await _stockYaDevuelto(ventaRef)) {
+    throw const VentaStockException('Esta venta ya está anulada.');
+  }
   await _ejecutar(
     codigoVenta: venta.codigoV,
     descontar: const [],
     devolver: _lineas(venta.productos, venta.sucursalU),
-    escribirVenta: (tx) => tx.delete(ventaRef),
+    motivoEntrada: 'Venta ${venta.codigoV} anulada',
+    ventaVerificarRef: ventaRef,
+    verificarVenta: (data) {
+      if (data == null) {
+        throw const VentaStockException('Esta venta ya fue eliminada.');
+      }
+      if (data['stockDevuelto'] == true) {
+        throw const VentaStockException('Esta venta ya está anulada.');
+      }
+    },
+    escribirVenta: (tx) => tx.update(ventaRef, {
+      'estado': 'Inactivo',
+      'stockDevuelto': true,
+    }),
   );
+}
+
+// Reactivar venta: vuelve a descontar el stock (falla si no alcanza)
+Future<void> reactivarVentaConStock(CRUDVentas venta) async {
+  final ventaRef = VentasRef.doc(venta.id);
+  if (!await _stockYaDevuelto(ventaRef)) {
+    // Venta desactivada antes de esta regla: su stock nunca volvió,
+    // así que solo se cambia el estado.
+    await ventaRef.update({'estado': 'Activo'});
+    return;
+  }
+  await _ejecutar(
+    codigoVenta: venta.codigoV,
+    descontar: _lineas(venta.productos, venta.sucursalU),
+    devolver: const [],
+    motivoSalida: 'Venta ${venta.codigoV} reactivada',
+    ventaVerificarRef: ventaRef,
+    verificarVenta: (data) {
+      if (data == null) {
+        throw const VentaStockException('Esta venta ya fue eliminada.');
+      }
+      if (data['stockDevuelto'] != true) {
+        throw const VentaStockException('Esta venta ya está activa.');
+      }
+    },
+    escribirVenta: (tx) => tx.update(ventaRef, {
+      'estado': 'Activo',
+      'stockDevuelto': false,
+    }),
+  );
+}
+
+// ¿Esta venta ya devolvió su stock (está anulada)?
+Future<bool> _stockYaDevuelto(
+  DocumentReference<Map<String, dynamic>> ventaRef,
+) async {
+  final snap = await ventaRef.get();
+  return snap.data()?['stockDevuelto'] == true;
 }
 
 List<_Linea> _lineas(List<ProductList> productos, String sucursal) =>
@@ -129,6 +216,14 @@ Future<void> _ejecutar({
   required List<_Linea> descontar,
   required List<_Linea> devolver,
   required void Function(Transaction tx) escribirVenta,
+  // Si se indica, falla cuando esa venta ya existe (evita duplicados)
+  DocumentReference<Map<String, dynamic>>? ventaNuevaRef,
+  // Comprueba el estado actual de la venta DENTRO de la transacción
+  // (evita repetir una acción, p. ej. devolver el stock dos veces)
+  DocumentReference<Map<String, dynamic>>? ventaVerificarRef,
+  void Function(Map<String, dynamic>? data)? verificarVenta,
+  String? motivoEntrada,
+  String? motivoSalida,
 }) async {
   final db = FirebaseFirestore.instance;
 
@@ -159,6 +254,14 @@ Future<void> _ejecutar({
   await db.runTransaction((tx) async {
     // Primero lecturas, luego escrituras
     final cambios = <_Cambio>[];
+
+    if (ventaNuevaRef != null && (await tx.get(ventaNuevaRef)).exists) {
+      throw const VentaDuplicadaException();
+    }
+    if (ventaVerificarRef != null && verificarVenta != null) {
+      final s = await tx.get(ventaVerificarRef);
+      verificarVenta(s.exists ? s.data() : null);
+    }
 
     for (final a in ajustes.values) {
       if (a.delta == 0) continue; // sin cambios
@@ -211,8 +314,9 @@ Future<void> _ejecutar({
         'tipo': saleStock ? 'Salida' : 'Entrada',
         'cantidad': _limpio(c.ajuste.delta.abs()),
         'motivo': saleStock
-            ? 'Venta $codigoVenta'
-            : 'Ajuste por venta $codigoVenta (eliminada o editada)',
+            ? (motivoSalida ?? 'Venta $codigoVenta')
+            : (motivoEntrada ??
+                'Ajuste por venta $codigoVenta (eliminada o editada)'),
         'stockAnterior': _limpio(c.anterior),
         'stockNuevo': _limpio(c.nuevo),
         'autor': autor,

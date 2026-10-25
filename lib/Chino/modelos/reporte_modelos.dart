@@ -7,7 +7,6 @@ const String kTodasLasSucursales = 'Todas las sucursales';
 const String kTodosLosProductos = 'Todos los productos';
 const String kTodasLasCategorias = 'Todas las categorías';
 const String kTodosLosEstados = 'Todos los estados';
-const String kTodosLosMetodos = 'Todos los métodos';
 
 // Estado inicial del filtro
 const String kEstadoVentaPredeterminado = kTodosLosEstados;
@@ -31,7 +30,7 @@ extension CategoriaReporteX on CategoriaReporte {
 }
 
 // Filtros disponibles
-enum FiltroReporte { fechas, sucursal, producto, categoria, estado, metodoPago }
+enum FiltroReporte { fechas, sucursal, producto, categoria, estado }
 
 const Set<FiltroReporte> _fVentas = {
   FiltroReporte.fechas,
@@ -39,7 +38,6 @@ const Set<FiltroReporte> _fVentas = {
   FiltroReporte.producto,
   FiltroReporte.categoria,
   FiltroReporte.estado,
-  FiltroReporte.metodoPago,
 };
 const Set<FiltroReporte> _fInventario = {
   FiltroReporte.sucursal,
@@ -73,8 +71,6 @@ enum TipoReporte {
       'Los 10 productos con más unidades vendidas en el período.', _fVentas),
   productosMenosVendidos(CategoriaReporte.ventas, 'Productos menos vendidos',
       'Los 10 productos con menos unidades vendidas (solo productos con al menos una venta).', _fVentas),
-  ventasPorMetodoPago(CategoriaReporte.ventas, 'Ventas por método de pago',
-      'Ventas e importe por método de pago (requiere que las ventas lo registren).', _fVentas),
 
   // Inventario
   catalogoProductos(CategoriaReporte.inventario, 'Catálogo de productos',
@@ -133,7 +129,6 @@ class FiltrosReporte {
   final String producto;
   final String categoria;
   final String estado;
-  final String metodoPago;
 
   const FiltrosReporte({
     required this.periodo,
@@ -143,7 +138,6 @@ class FiltrosReporte {
     this.producto = kTodosLosProductos,
     this.categoria = kTodasLasCategorias,
     this.estado = kEstadoVentaPredeterminado,
-    this.metodoPago = kTodosLosMetodos,
   });
 
   factory FiltrosReporte.predeterminados([DateTime? ahora]) {
@@ -189,7 +183,6 @@ class FiltrosReporte {
     String? producto,
     String? categoria,
     String? estado,
-    String? metodoPago,
   }) =>
       FiltrosReporte(
         periodo: periodo ?? this.periodo,
@@ -199,7 +192,6 @@ class FiltrosReporte {
         producto: producto ?? this.producto,
         categoria: categoria ?? this.categoria,
         estado: estado ?? this.estado,
-        metodoPago: metodoPago ?? this.metodoPago,
       );
 
   // ¿El filtro está activo?
@@ -216,8 +208,6 @@ class FiltrosReporte {
         return categoria != kTodasLasCategorias;
       case FiltroReporte.estado:
         return estado != kTodosLosEstados;
-      case FiltroReporte.metodoPago:
-        return metodoPago != kTodosLosMetodos;
     }
   }
 
@@ -240,9 +230,6 @@ class FiltrosReporte {
     if (tipo.usa(FiltroReporte.estado)) {
       l.add('${tipo.etiquetaEstado}: ${estado == kTodosLosEstados ? 'Todos' : estado}');
     }
-    if (tipo.usa(FiltroReporte.metodoPago)) {
-      l.add('Método de pago: ${metodoPago == kTodosLosMetodos ? 'Todos' : metodoPago}');
-    }
     return l;
   }
 }
@@ -254,7 +241,6 @@ class OpcionesFiltros {
   final List<String> categorias;
   final List<String> estadosVenta;
   final List<String> estadosProducto;
-  final List<String> metodosPago;
 
   const OpcionesFiltros({
     this.sucursales = const [],
@@ -262,7 +248,6 @@ class OpcionesFiltros {
     this.categorias = const [],
     this.estadosVenta = const [],
     this.estadosProducto = const [],
-    this.metodosPago = const [],
   });
 }
 
@@ -317,6 +302,30 @@ class Indicador {
   const Indicador(this.etiqueta, this.valor);
 }
 
+// Detalle de una fila (sub-tabla)
+class DetalleReporte {
+  final String titulo;
+  final List<ColumnaReporte> columnas;
+  final List<List<Object?>> filas;
+
+  // Filas que son subtotales (se resaltan)
+  final Set<int> subtotales;
+
+  const DetalleReporte({
+    required this.titulo,
+    required this.columnas,
+    required this.filas,
+    this.subtotales = const {},
+  });
+
+  bool get tieneDatos => filas.isNotEmpty;
+
+  List<String> filaFormateada(List<Object?> fila) => [
+        for (var i = 0; i < fila.length; i++)
+          TablaReporte.formatearCelda(columnas[i], fila[i], vacio: ''),
+      ];
+}
+
 // Resultado del reporte
 class TablaReporte {
   final TipoReporte tipo;
@@ -327,6 +336,9 @@ class TablaReporte {
 
   // Fila de totales
   final List<Object?>? totales;
+
+  // Detalle de cada fila (misma posición que en filas, puede ser null)
+  final List<DetalleReporte?> detalles;
   final List<Indicador> resumen;
   final List<String> filtrosAplicados;
   final List<String> advertencias;
@@ -337,6 +349,7 @@ class TablaReporte {
     required this.columnas,
     required this.filas,
     this.totales,
+    this.detalles = const [],
     this.resumen = const [],
     this.filtrosAplicados = const [],
     this.advertencias = const [],
@@ -344,6 +357,11 @@ class TablaReporte {
   });
 
   bool get tieneDatos => filas.isNotEmpty;
+
+  bool get tieneDetalle => detalles.any((d) => d != null && d.tieneDatos);
+
+  DetalleReporte? detalleDe(int i) =>
+      i < detalles.length && (detalles[i]?.tieneDatos ?? false) ? detalles[i] : null;
 
   static final NumberFormat _fmtMoneda =
       NumberFormat.currency(symbol: 'C\$ ', decimalDigits: 2);
@@ -355,10 +373,15 @@ class TablaReporte {
   static String formatearCantidad(num v) => _fmtCantidad.format(v);
   static String formatearEntero(num v) => _fmtEntero.format(v);
 
-  String formatear(int col, Object? valor) {
-    if (valor == null) return '-';
+  String formatear(int col, Object? valor) =>
+      formatearCelda(columnas[col], valor);
+
+  // Da formato a un valor según el tipo de su columna
+  static String formatearCelda(ColumnaReporte c, Object? valor,
+      {String vacio = '-'}) {
+    if (valor == null) return vacio;
     if (valor is! num) return valor.toString();
-    switch (columnas[col].tipo) {
+    switch (c.tipo) {
       case TipoColumna.entero:
         return _fmtEntero.format(valor);
       case TipoColumna.cantidad:

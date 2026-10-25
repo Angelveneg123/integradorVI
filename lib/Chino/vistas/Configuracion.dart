@@ -3,15 +3,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../controladores/apariencia_service.dart';
+import '../controladores/permisos_service.dart';
 import '../controladores/solicitudes_password_service.dart';
 import '../modelos/usuario_modelo.dart';
 import 'SolicitudesPassword.dart';
 
 const String kVersionApp = '1.0.0';
 
-const Color _textoOscuro = Color(0xFF5A3E36);
-const Color _textoClaro = Color(0xFF7A6B65);
-const Color _borde = Color(0xFFEEE7E2);
+Color get _textoOscuro => Apariencia.instance.textoOscuro;
+Color get _textoClaro => Apariencia.instance.textoClaro;
+Color get _borde => Apariencia.instance.bordeSuave;
 
 class ConfiguracionScreen extends StatefulWidget {
   const ConfiguracionScreen({super.key});
@@ -32,10 +33,15 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
         .snapshots();
   }();
 
-  Future<void> _guardar({String? acento, String? fondo, String? texto}) async {
+  Future<void> _guardar({
+    String? modo,
+    String? acento,
+    String? fondo,
+    String? texto,
+  }) async {
     try {
       await Apariencia.instance
-          .guardar(acento: acento, fondo: fondo, texto: texto);
+          .guardar(modo: modo, acento: acento, fondo: fondo, texto: texto);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -67,7 +73,7 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Configuración'),
-        backgroundColor: Colors.white,
+        backgroundColor: Apariencia.instance.superficie,
         foregroundColor: _textoOscuro,
         elevation: 0,
       ),
@@ -84,6 +90,21 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
               const _Titulo('Apariencia'),
               _Tarjeta(
                 hijos: [
+                  const _Subtitulo('Modo de pantalla'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final o in kModos)
+                        ChoiceChip(
+                          avatar: Icon(o.icono, size: 18),
+                          label: Text(o.nombre),
+                          selected: ap.modoId == o.id,
+                          onSelected: (_) => _guardar(modo: o.id),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
                   const _Subtitulo('Color de acento'),
                   Wrap(
                     spacing: 12,
@@ -99,17 +120,31 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
                   ),
                   const SizedBox(height: 18),
                   const _Subtitulo('Color de fondo'),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      for (final o in kColoresFondo)
-                        _Muestra(
-                          opcion: o,
-                          seleccionada: ap.fondoId == o.id,
-                          onTap: () => _guardar(fondo: o.id),
-                        ),
-                    ],
+                  if (ap.oscuro)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'En modo oscuro el fondo es automático.',
+                        style: TextStyle(fontSize: 12, color: _textoClaro),
+                      ),
+                    ),
+                  Opacity(
+                    opacity: ap.oscuro ? 0.4 : 1,
+                    child: IgnorePointer(
+                      ignoring: ap.oscuro,
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          for (final o in kColoresFondo)
+                            _Muestra(
+                              opcion: o,
+                              seleccionada: ap.fondoId == o.id,
+                              onTap: () => _guardar(fondo: o.id),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 18),
                   const _Subtitulo('Tamaño de letra'),
@@ -143,7 +178,7 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
               ),
 
               const _Titulo('Acerca de'),
-              const _Tarjeta(
+              _Tarjeta(
                 hijos: [
                   Text(
                     'Panadería Romero',
@@ -178,6 +213,14 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
         },
       ),
     );
+  }
+
+  // Rol con el que se están aplicando los permisos
+  String _rolAplicado() {
+    final p = Permisos.instance;
+    if (p.perfil == null) return 'Administrador (sin perfil en Firestore)';
+    if (p.esAdmin) return 'Administrador';
+    return p.esEncargado ? 'Encargado' : 'Vendedor';
   }
 
   // Datos de la sesión
@@ -221,7 +264,7 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
                       children: [
                         Text(
                           nombre.isEmpty ? 'Mi sesión' : nombre,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
                             color: _textoOscuro,
@@ -229,19 +272,42 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
                         ),
                         Text(
                           correo,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: _textoClaro,
                             fontSize: 13,
                           ),
                         ),
                         if (rol.isNotEmpty)
                           Text(
-                            rol,
-                            style: const TextStyle(
+                            'Rol guardado: $rol',
+                            style: TextStyle(
                               color: _textoClaro,
                               fontSize: 12,
                             ),
                           ),
+                        // Rol que la app está aplicando
+                        Text(
+                          'Permisos aplicados: ${_rolAplicado()}',
+                          style: TextStyle(
+                            color: _textoClaro,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (Permisos.instance.error != null)
+                          Text(
+                            'No se pudo leer tu perfil: ${Permisos.instance.error}',
+                            style: const TextStyle(
+                              color: Color(0xFFB3261E),
+                              fontSize: 12,
+                            ),
+                          ),
+                        SelectableText(
+                          'ID: ${user.uid}',
+                          style: TextStyle(
+                            color: _textoClaro,
+                            fontSize: 11,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -264,7 +330,7 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
       builder: (context, snap) {
         final data = snap.data?.data();
         final esAdmin = data != null &&
-            data['rol'] == 'Administrador' &&
+            normalizarRol(data['rol']) == 'Administrador' &&
             (data['estado'] ?? 'Activo') == 'Activo';
         if (!esAdmin) return const SizedBox.shrink();
 
@@ -279,10 +345,10 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
                 return Card(
                   elevation: 0,
                   margin: EdgeInsets.zero,
-                  color: Colors.white,
+                  color: Apariencia.instance.superficie,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
-                    side: const BorderSide(color: _borde),
+                    side: BorderSide(color: _borde),
                   ),
                   child: ListTile(
                     leading: Badge(
@@ -323,7 +389,7 @@ class _Titulo extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(2, 20, 2, 10),
         child: Text(
           texto,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w800,
             color: _textoOscuro,
@@ -341,7 +407,7 @@ class _Subtitulo extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 10),
         child: Text(
           texto,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
             color: _textoClaro,
@@ -359,7 +425,7 @@ class _Tarjeta extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Apariencia.instance.superficie,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: _borde),
         ),

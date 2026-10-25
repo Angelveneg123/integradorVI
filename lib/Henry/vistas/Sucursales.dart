@@ -4,14 +4,16 @@ import 'package:flutter/services.dart';
 import '../../Chino/vistas/AppDrawer.dart';
 import '../modelos/sucursal_modelo.dart';
 import '../controladores/sucursales_service.dart';
+import '../controladores/codigos_sucursal.dart';
 import '../../Chino/controladores/permisos_service.dart';
+import '../../Chino/controladores/apariencia_service.dart';
 
 // Colores
-const Color _textoOscuro = Color(0xFF5A3E36);
-const Color _textoClaro = Color(0xFF7A6B65);
-const Color _colorAcento = Color(0xFFA65021);
-const Color _colorBorde = Color(0xFFE8DFD8);
-const Color _fondoInput = Color(0xFFFCFAF7);
+Color get _textoOscuro => Apariencia.instance.textoOscuro;
+Color get _textoClaro => Apariencia.instance.textoClaro;
+Color get _colorAcento => Apariencia.instance.acento;
+Color get _colorBorde => Apariencia.instance.borde;
+Color get _fondoInput => Apariencia.instance.fondoInput;
 const Color _rojo = Color(0xFFB3261E);
 
 String _mensajeError(Object e) => e
@@ -22,17 +24,17 @@ String _mensajeError(Object e) => e
 InputDecoration _decoracionCampo({String? hint}) {
   return InputDecoration(
     hintText: hint,
-    hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+    hintStyle: TextStyle(color: Apariencia.instance.hint, fontSize: 14),
     filled: true,
     fillColor: _fondoInput,
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorBorde),
+      borderSide: BorderSide(color: _colorBorde),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorAcento),
+      borderSide: BorderSide(color: _colorAcento),
     ),
   );
 }
@@ -107,7 +109,7 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Sucursales',
                       style: TextStyle(
                         fontSize: 26,
@@ -116,7 +118,7 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Puntos de venta de la panadería',
                       style: TextStyle(fontSize: 13, color: _textoClaro),
                     ),
@@ -127,7 +129,7 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                       decoration: _decoracionCampo(hint: 'Buscar sucursal...')
                           .copyWith(
                         prefixIcon:
-                            const Icon(Icons.search, color: _textoClaro),
+                            Icon(Icons.search, color: _textoClaro),
                         contentPadding:
                             const EdgeInsets.symmetric(vertical: 12),
                       ),
@@ -154,7 +156,7 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'LISTADO',
                       style: TextStyle(
                         fontSize: 11,
@@ -175,7 +177,7 @@ class _SucursalesScreenState extends State<SucursalesScreen> {
                           );
                         }
                         if (!snapshot.hasData) {
-                          return const Padding(
+                          return Padding(
                             padding: EdgeInsets.symmetric(vertical: 40),
                             child: Center(
                               child: CircularProgressIndicator(
@@ -234,7 +236,7 @@ class _MensajeEstado extends StatelessWidget {
             Text(
               texto,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _textoClaro),
+              style: TextStyle(color: _textoClaro),
             ),
           ],
         ),
@@ -302,7 +304,7 @@ class _TarjetaSucursal extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Apariencia.instance.superficie,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: _colorBorde),
           ),
@@ -319,7 +321,7 @@ class _TarjetaSucursal extends StatelessWidget {
                             sucursal.etiqueta,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
                               color: _textoOscuro,
@@ -335,14 +337,14 @@ class _TarjetaSucursal extends StatelessWidget {
                       '${sucursal.direccion}, ${sucursal.ciudad}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12, color: _textoClaro),
+                      style: TextStyle(fontSize: 12, color: _textoClaro),
                     ),
                     const SizedBox(height: 2),
                     FutureBuilder<String>(
                       future: _conteos(),
                       builder: (context, snap) => Text(
                         snap.data ?? '...',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           color: _textoClaro,
                         ),
@@ -351,7 +353,7 @@ class _TarjetaSucursal extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, size: 20, color: _textoClaro),
+              Icon(Icons.chevron_right, size: 20, color: _textoClaro),
             ],
           ),
         ),
@@ -375,9 +377,13 @@ class SucursalFormScreen extends StatefulWidget {
 
 class _SucursalFormScreenState extends State<SucursalFormScreen> {
   late final TextEditingController _nombreController;
-  late final TextEditingController _encargadoController;
   late final TextEditingController _direccionController;
   late final TextEditingController _personalController;
+  late final TextEditingController _prefijoController;
+  // Prefijos de las demás sucursales (para sugerir uno libre)
+  Set<String> _prefijosEnUso = {};
+  // Si la persona escribió el prefijo a mano, ya no se sugiere solo
+  bool _prefijoManual = false;
   String? _ciudad;
   late String _estado;
   bool _guardando = false;
@@ -389,23 +395,55 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
     super.initState();
     final s = widget.sucursal;
     _nombreController = TextEditingController(text: s?.nombre ?? '');
-    _encargadoController = TextEditingController(text: s?.encargado ?? '');
     _direccionController = TextEditingController(text: s?.direccion ?? '');
     _personalController = TextEditingController(
       text: s == null ? '' : s.cantidadPersonal.toString(),
     );
+    _prefijoController = TextEditingController(text: s?.prefijo ?? '');
+    // Una sucursal existente conserva su prefijo aunque cambie el nombre
+    _prefijoManual = s != null;
+    _cargarPrefijos();
     _ciudad = (s != null && s.ciudad.isNotEmpty) ? s.ciudad : null;
     _estado = (s != null && kEstadosSucursal.contains(s.estado))
         ? s.estado
         : kEstadosSucursal.first;
   }
 
+  // Prefijos ya usados por las otras sucursales
+  Future<void> _cargarPrefijos() async {
+    try {
+      final todos = await widget.service.prefijosActuales();
+      final propio = widget.sucursal?.id;
+      if (!mounted) return;
+      setState(() {
+        _prefijosEnUso = {
+          for (final e in todos.entries)
+            if (e.key != propio) e.value,
+        };
+        // Sucursal sin prefijo guardado: muestra el que ya usa (calculado)
+        if (_prefijoController.text.isEmpty && propio != null) {
+          _prefijoController.text = todos[propio] ?? '';
+        }
+        if (_prefijoController.text.isEmpty) _sugerirPrefijo();
+      });
+    } catch (_) {
+      // Sin conexión: la persona puede escribirlo a mano
+    }
+  }
+
+  // Sugiere un prefijo libre según el nombre escrito
+  void _sugerirPrefijo() {
+    if (_prefijoManual) return;
+    _prefijoController.text =
+        CodigosSucursal.sugerir(_nombreController.text, _prefijosEnUso);
+  }
+
   @override
   void dispose() {
     _nombreController.dispose();
-    _encargadoController.dispose();
     _direccionController.dispose();
     _personalController.dispose();
+    _prefijoController.dispose();
     super.dispose();
   }
 
@@ -415,7 +453,6 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
 
   Future<void> _guardar() async {
     final nombre = _nombreController.text.trim();
-    final encargado = _encargadoController.text.trim();
     final direccion = _direccionController.text.trim();
     final personal = int.tryParse(_personalController.text.trim());
 
@@ -423,8 +460,15 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
       _aviso('Escribe el nombre de la sucursal.');
       return;
     }
-    if (encargado.isEmpty) {
-      _aviso('Escribe el nombre del encargado.');
+    final prefijo = CodigosSucursal.limpiarPrefijo(_prefijoController.text);
+    if (!CodigosSucursal.prefijoValido(prefijo)) {
+      _aviso(
+        'Escribe un prefijo de 1 a ${CodigosSucursal.maxPrefijo} letras (ej. N, S, NE).',
+      );
+      return;
+    }
+    if (_prefijosEnUso.contains(prefijo)) {
+      _aviso('El prefijo "$prefijo" ya lo usa otra sucursal.');
       return;
     }
     if (_ciudad == null) {
@@ -440,6 +484,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
       return;
     }
 
+    if (_guardando) return; // ignora toques repetidos
     setState(() => _guardando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -447,20 +492,22 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
         await widget.service.actualizar(
           original: widget.sucursal!,
           nombre: nombre,
-          encargado: encargado,
+          encargado: widget.sucursal!.encargado,
           ciudad: _ciudad!,
           direccion: direccion,
           cantidadPersonal: personal,
           estado: _estado,
+          prefijo: prefijo,
         );
       } else {
         await widget.service.crear(
           nombre: nombre,
-          encargado: encargado,
+          encargado: '',
           ciudad: _ciudad!,
           direccion: direccion,
           cantidadPersonal: personal,
           estado: _estado,
+          prefijo: prefijo,
         );
       }
       if (!mounted) return;
@@ -483,7 +530,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
         padding: const EdgeInsets.only(bottom: 6),
         child: Text(
           texto,
-          style: const TextStyle(fontSize: 12, color: _textoClaro),
+          style: TextStyle(fontSize: 12, color: _textoClaro),
         ),
       );
 
@@ -504,8 +551,8 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
             children: [
               TextButton.icon(
                 onPressed: _guardando ? null : () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-                label: const Text(
+                icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+                label: Text(
                   'Sucursales',
                   style: TextStyle(color: _textoOscuro),
                 ),
@@ -517,7 +564,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
               const SizedBox(height: 8),
               Text(
                 _editando ? 'Editar Sucursal' : 'Nueva sucursal',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
                   color: _textoOscuro,
@@ -529,15 +576,69 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
               TextField(
                 controller: _nombreController,
                 textCapitalization: TextCapitalization.words,
+                onChanged: (_) => setState(_sugerirPrefijo),
                 decoration: _decoracionCampo(hint: 'Escribir nombre'),
               ),
               const SizedBox(height: 16),
 
-              _etiqueta('Nombre del encargado'),
+              _etiqueta('Prefijo de códigos'),
               TextField(
-                controller: _encargadoController,
-                textCapitalization: TextCapitalization.words,
-                decoration: _decoracionCampo(hint: 'Escribir nombre'),
+                controller: _prefijoController,
+                textCapitalization: TextCapitalization.characters,
+                maxLength: CodigosSucursal.maxPrefijo,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z]')),
+                  TextInputFormatter.withFunction(
+                    (anterior, nuevo) =>
+                        nuevo.copyWith(text: nuevo.text.toUpperCase()),
+                  ),
+                ],
+                onChanged: (_) => setState(() => _prefijoManual = true),
+                decoration: _decoracionCampo(hint: 'Ej. N, S, NE')
+                    .copyWith(counterText: ''),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _prefijoController.text.isEmpty
+                      ? 'Los códigos de esta sucursal empiezan con este prefijo.'
+                      : 'Ej. ${CodigosSucursal.formatear(_prefijoController.text, 1)}: '
+                          'ventas, productos, ingredientes y usuarios de esta sucursal. '
+                          'Los códigos ya creados no cambian.',
+                  style: TextStyle(fontSize: 12, color: _textoClaro),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              _etiqueta('Encargado'),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                decoration: BoxDecoration(
+                  color: _fondoInput,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _colorBorde),
+                ),
+                child: Text(
+                  (widget.sucursal?.encargado ?? '').isEmpty
+                      ? 'Sin encargado'
+                      : widget.sucursal!.encargado,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: (widget.sucursal?.encargado ?? '').isEmpty
+                        ? Apariencia.instance.hint
+                        : _textoOscuro,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'Se asigna solo: crea un usuario con rol Encargado y '
+                  'esta sucursal en el módulo Usuarios.',
+                  style: TextStyle(fontSize: 12, color: _textoClaro),
+                ),
               ),
               const SizedBox(height: 16),
 
@@ -642,7 +743,7 @@ class _SucursalFormScreenState extends State<SucursalFormScreen> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _textoOscuro,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: _textoOscuro),
+                    side: BorderSide(color: _textoOscuro),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -693,6 +794,7 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
 
   Future<void> _cambiarEstado(Sucursal s) async {
     final nuevo = s.activo ? 'Inactivo' : 'Activo';
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     try {
       await widget.service.cambiarEstado(s, nuevo);
@@ -731,6 +833,7 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
     );
     if (confirmar != true || !mounted) return;
 
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -754,8 +857,8 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
 
   Widget _botonAtras() => TextButton.icon(
         onPressed: () => Navigator.pop(context),
-        icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-        label: const Text('Sucursales', style: TextStyle(color: _textoOscuro)),
+        icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+        label: Text('Sucursales', style: TextStyle(color: _textoOscuro)),
         style: TextButton.styleFrom(
           padding: EdgeInsets.zero,
           alignment: Alignment.centerLeft,
@@ -787,7 +890,7 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
             }
             if (snapshot.connectionState == ConnectionState.waiting) {
               return _cuerpoSimple(
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
                   child: Center(
                     child: CircularProgressIndicator(color: _colorAcento),
@@ -815,7 +918,7 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Apariencia.instance.superficie,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: _colorBorde),
         ),
@@ -826,7 +929,7 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
         padding: const EdgeInsets.only(bottom: 10),
         child: Text(
           texto,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w700,
             color: _textoOscuro,
@@ -846,7 +949,7 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Apariencia.instance.superficie,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: _colorBorde),
             ),
@@ -857,14 +960,14 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Sucursal',
                         style: TextStyle(fontSize: 12, color: _textoClaro),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         s.nombre,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
                           color: _textoOscuro,
@@ -883,7 +986,10 @@ class _DetalleSucursalScreenState extends State<DetalleSucursalScreen> {
           _tarjeta([
             _FilaInfo('ID', s.codigo),
             _FilaInfo('Nombre de la sucursal', s.nombre),
-            _FilaInfo('Nombre del encargado', s.encargado),
+            _FilaInfo(
+              'Nombre del encargado',
+              s.encargado.isEmpty ? 'Sin encargado' : s.encargado,
+            ),
             _FilaInfo('Cantidad de personal', s.cantidadPersonal.toString()),
             _FilaInfo('Estado', s.activo ? 'Activa' : 'Inactiva', ultima: true),
           ]),
@@ -949,7 +1055,7 @@ class _FilaInfo extends StatelessWidget {
       decoration: BoxDecoration(
         border: ultima
             ? null
-            : const Border(bottom: BorderSide(color: _colorBorde)),
+            : Border(bottom: BorderSide(color: _colorBorde)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -957,7 +1063,7 @@ class _FilaInfo extends StatelessWidget {
           Expanded(
             child: Text(
               etiqueta,
-              style: const TextStyle(fontSize: 13, color: _textoClaro),
+              style: TextStyle(fontSize: 13, color: _textoClaro),
             ),
           ),
           const SizedBox(width: 12),
@@ -965,7 +1071,7 @@ class _FilaInfo extends StatelessWidget {
             child: Text(
               valor,
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
                 color: _textoOscuro,

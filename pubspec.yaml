@@ -68,7 +68,7 @@ flutter:
   uses-material-design: true
   
   assets:
-    - assets/images/romero.jpeg # <-- Cambia .png por la extensión real de tu imagen (.jpg, .jpeg)
+    - assets/images/romero.png # <-- logo con fondo transparente
 
   # To add assets to your application, add an assets section, like this:
   # assets:

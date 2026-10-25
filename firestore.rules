@@ -27,6 +27,9 @@ service cloud.firestore {
     function isAdmin() {
       return activo() && perfil().get('rol', '') == 'Administrador';
     }
+    function isEncargado() {
+      return activo() && perfil().get('rol', '') == 'Encargado';
+    }
     function norm(s) {
       return s.trim().lower().replace('^sucursal +', '');
     }
@@ -51,7 +54,7 @@ service cloud.firestore {
     match /productos/{id} {
       allow read: if activo();
       allow create, delete: if isAdmin();
-      // El vendedor solo puede tocar el stock de productos de su sucursal
+      // Vendedor y encargado solo pueden tocar el stock de productos de su sucursal
       // (ajustes y descuento por ventas); nada de precios ni recetas.
       allow update: if isAdmin()
         || (esMiSucursal(resource.data.get('sucursal', ''))
@@ -68,7 +71,19 @@ service cloud.firestore {
     // ------------------------------------------------------- materia prima
     match /materia_prima/{id} {
       allow read: if activo();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      // Vendedor y encargado solo pueden ajustar la cantidad (stock) de los
+      // ingredientes de su sucursal; nada de nombre, unidad ni estado.
+      allow update: if isAdmin()
+        || (esMiSucursal(resource.data.get('sucursal', ''))
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['cantidad', 'actualizadoEn']));
+
+      // Historial de movimientos de stock del ingrediente.
+      match /movimientos/{mov} {
+        allow create: if activo();
+        allow read: if isAdmin();
+      }
     }
 
     // -------------------------------------------------------------- ventas
@@ -82,8 +97,26 @@ service cloud.firestore {
         || (activo()
             && esMiSucursal(request.resource.data.get('sucursal', ''))
             && request.resource.data.get('vendedorId', '') == request.auth.uid);
+      // Editar, desactivar o eliminar: admin, o encargado en su sucursal.
       allow update, delete: if isAdmin()
-        || esMiSucursal(resource.data.get('sucursal', resource.data.get('sucursalU', '')));
+        || (isEncargado()
+            && esMiSucursal(resource.data.get('sucursal', resource.data.get('sucursalU', ''))));
+    }
+
+    // --------------------------------------------------------- contadores
+    // Contador por sucursal y tipo (ventas_N, productos_S...) para que dos
+    // personas que guardan a la vez no reciban el mismo código. Solo puede
+    // crecer; no se borra.
+    match /contadores/{id} {
+      allow read: if activo();
+      allow create: if activo()
+        && request.resource.data.keys().hasOnly(['ultimo', 'actualizadoEn'])
+        && request.resource.data.ultimo is int;
+      allow update: if activo()
+        && request.resource.data.keys().hasOnly(['ultimo', 'actualizadoEn'])
+        && request.resource.data.ultimo is int
+        && request.resource.data.ultimo > resource.data.ultimo;
+      allow delete: if false;
     }
 
     // ----------------------------------------------------------- auditoría

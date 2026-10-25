@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import 'auditoria_service.dart';
+import '../../Henry/controladores/codigos_sucursal.dart';
 import '../modelos/evento_auditoria_modelo.dart';
 import '../modelos/materia_prima_modelo.dart';
 import 'permisos_service.dart';
@@ -20,7 +21,7 @@ class MateriaPrimaService {
   final AuditoriaService _auditoria;
 
 // Módulo para la auditoría
-  static const String _modulo = 'Materia Prima';
+  static const String _modulo = 'Ingredientes';
 
   CollectionReference<Map<String, dynamic>> get _coleccion =>
       _db.collection(kColeccionMateriaPrima);
@@ -66,7 +67,7 @@ class MateriaPrimaService {
     nombre = nombre.trim();
     await _validarDuplicado(nombre: nombre, sucursal: sucursal);
 
-    final codigo = await _siguienteCodigo();
+    final codigo = await _siguienteCodigo(sucursal);
     // Referencia al documento
     final ref = _coleccion.doc(codigo);
     final nueva = MateriaPrima(
@@ -84,12 +85,15 @@ class MateriaPrimaService {
       if (snap.exists) {
         throw StateError('El código $codigo ya existe. Intenta de nuevo.');
       }
-      tx.set(ref, nueva.toMap());
+      tx.set(ref, {
+        ...nueva.toMap(),
+        'creadoEn': FieldValue.serverTimestamp(),
+      });
     });
 
     await _registrarAuditoria(
       tipo: TipoEvento.crear,
-      descripcion: 'Se registró la materia prima "$nombre"',
+      descripcion: 'Se registró el ingrediente "$nombre"',
       materia: nueva,
     );
     return codigo;
@@ -126,7 +130,7 @@ class MateriaPrimaService {
 
     await _registrarAuditoria(
       tipo: TipoEvento.editar,
-      descripcion: 'Se editó la materia prima "${original.nombre}"',
+      descripcion: 'Se editó el ingrediente "${original.nombre}"',
       materia: editada,
       detalle:
           'Cantidad: ${original.cantidadConUnidad} → ${editada.cantidadConUnidad}',
@@ -144,7 +148,7 @@ class MateriaPrimaService {
     await _registrarAuditoria(
       tipo: TipoEvento.editar,
       descripcion:
-          '${nuevoEstado == 'Activo' ? 'Se activó' : 'Se desactivó'} la materia prima "${materia.nombre}"',
+          '${nuevoEstado == 'Activo' ? 'Se activó' : 'Se desactivó'} el ingrediente "${materia.nombre}"',
       materia: materia,
       detalle: 'Estado: ${materia.estado} → $nuevoEstado',
     );
@@ -157,21 +161,21 @@ class MateriaPrimaService {
 
     await _registrarAuditoria(
       tipo: TipoEvento.eliminar,
-      descripcion: 'Se eliminó la materia prima "${materia.nombre}"',
+      descripcion: 'Se eliminó el ingrediente "${materia.nombre}"',
       materia: materia,
     );
   }
 
 
-  // Siguiente código libre
-  Future<String> _siguienteCodigo() async {
-    final snap = await _coleccion.get();
-    var maximo = 0;
-    for (final doc in snap.docs) {
-      final numero = int.tryParse(doc.id.replaceAll(RegExp(r'[^0-9]'), ''));
-      if (numero != null && numero > maximo) maximo = numero;
-    }
-    return 'M${(maximo + 1).toString().padLeft(3, '0')}';
+  // Siguiente código libre con el prefijo de la sucursal (N001, S001...).
+  // El código es también el id del documento.
+  Future<String> _siguienteCodigo(String sucursal) async {
+    final prefijo = await CodigosSucursal.prefijoDe(_db, sucursal) ?? 'M';
+    return CodigosSucursal.reservar(
+      db: _db,
+      coleccion: kColeccionMateriaPrima,
+      prefijo: prefijo,
+    );
   }
 
   // No permite nombres repetidos en la sucursal
@@ -221,7 +225,7 @@ class MateriaPrimaService {
         ],
       );
     } catch (e) {
-      debugPrint('No se pudo registrar la auditoría de materia prima: $e');
+      debugPrint('No se pudo registrar la auditoría de ingredientes: $e');
     }
   }
 }

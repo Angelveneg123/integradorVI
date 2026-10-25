@@ -22,8 +22,37 @@ Future<void> main() async {
   runApp(const PanaderiaApp());
 }
 
-class PanaderiaApp extends StatelessWidget {
+// Obliga a repintar todas las pantallas abiertas (sin perder su estado)
+void _repintarTodo() {
+  void visitar(Element e) {
+    e.markNeedsBuild();
+    e.visitChildren(visitar);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(visitar);
+}
+
+class PanaderiaApp extends StatefulWidget {
   const PanaderiaApp({super.key});
+
+  @override
+  State<PanaderiaApp> createState() => _PanaderiaAppState();
+}
+
+class _PanaderiaAppState extends State<PanaderiaApp> {
+  String _firma = '';
+
+  // Cambia solo si cambió algo visual (modo, color, fondo, letra)
+  String _firmaActual() {
+    final a = Apariencia.instance;
+    return '${a.oscuro}|${a.acentoId}|${a.fondoId}|${a.textoId}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _firma = _firmaActual();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +60,11 @@ class PanaderiaApp extends StatelessWidget {
       listenable: Apariencia.instance,
       builder: (context, _) {
         final apariencia = Apariencia.instance;
+        final nueva = _firmaActual();
+        if (nueva != _firma) {
+          _firma = nueva;
+          WidgetsBinding.instance.addPostFrameCallback((_) => _repintarTodo());
+        }
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'Panadería Romero',
@@ -164,32 +198,32 @@ class _CuentaBloqueada extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
+                Icon(
                   Icons.lock_outline,
                   size: 48,
-                  color: Color(0xFFA65021),
+                  color: Apariencia.instance.acentoBase,
                 ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   'Cuenta desactivada',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF5A3E36),
+                    color: Apariencia.instance.textoOscuro,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Tu cuenta no tiene acceso al sistema. '
                   'Comunícate con el administrador.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF7A6B65)),
+                  style: TextStyle(color: Apariencia.instance.textoClaro),
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () => FirebaseAuth.instance.signOut(),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFA65021),
+                    backgroundColor: Apariencia.instance.acentoBase,
                     foregroundColor: Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(
@@ -354,10 +388,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const Color textoOscuro = Color(0xFF5A3E36);
-    const Color textoClaro = Color(0xFF7A6B65);
-    const Color colorBoton = Color(0xFFA65021);
-    const Color colorBorde = Color(0xFFE8DFD8);
+    final ap = Apariencia.instance;
+    final Color textoOscuro = ap.textoOscuro;
+    final Color textoClaro = ap.textoClaro;
+    final Color colorBoton = ap.acentoBase;
+    final Color colorBorde = ap.borde;
 
     return Scaffold(
       body: Center(
@@ -375,14 +410,14 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 Center(
                   child: Image.asset(
-                    'assets/images/romero.jpeg',
+                    'assets/images/romero.png',
                     height: 110,
                     errorBuilder: (
                       context,
                       error,
                       stackTrace,
                     ) {
-                      return const Icon(
+                      return Icon(
                         Icons.bakery_dining,
                         size: 100,
                         color: colorBoton,
@@ -393,7 +428,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 16),
 
-                const Text(
+                Text(
                   'Panadería Romero',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -405,7 +440,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 8),
 
-                const Text(
+                Text(
                   'Ingresar para continuar',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -416,7 +451,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 40),
 
-                const Text(
+                Text(
                   'Correo',
                   style: TextStyle(
                     fontSize: 12,
@@ -436,8 +471,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     prefixIcon: const Icon(
                       Icons.email_outlined,
                     ),
-                    hintStyle: const TextStyle(
-                      color: Colors.black54,
+                    hintStyle: TextStyle(
+                      color: ap.textoClaro,
                       fontSize: 13,
                     ),
                     contentPadding:
@@ -446,18 +481,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       vertical: 14,
                     ),
                     filled: true,
-                    fillColor: const Color(0xFFFCFAF7),
+                    fillColor: ap.fondoInput,
                     enabledBorder: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(8),
-                      borderSide: const BorderSide(
+                      borderSide: BorderSide(
                         color: colorBorde,
                       ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(8),
-                      borderSide: const BorderSide(
+                      borderSide: BorderSide(
                         color: colorBoton,
                       ),
                     ),
@@ -466,7 +501,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 20),
 
-                const Text(
+                Text(
                   'Contraseña',
                   style: TextStyle(
                     fontSize: 12,
@@ -504,8 +539,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             : Icons.visibility_off_outlined,
                       ),
                     ),
-                    hintStyle: const TextStyle(
-                      color: Colors.black54,
+                    hintStyle: TextStyle(
+                      color: ap.textoClaro,
                       fontSize: 13,
                     ),
                     contentPadding:
@@ -514,18 +549,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       vertical: 14,
                     ),
                     filled: true,
-                    fillColor: const Color(0xFFFCFAF7),
+                    fillColor: ap.fondoInput,
                     enabledBorder: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(8),
-                      borderSide: const BorderSide(
+                      borderSide: BorderSide(
                         color: colorBorde,
                       ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(8),
-                      borderSide: const BorderSide(
+                      borderSide: BorderSide(
                         color: colorBoton,
                       ),
                     ),

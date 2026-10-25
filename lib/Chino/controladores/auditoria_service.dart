@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../modelos/evento_auditoria_modelo.dart';
 import '../modelos/usuario_modelo.dart';
+import 'permisos_service.dart';
 
 // Servicio de auditoría
 class AuditoriaService {
@@ -16,7 +17,7 @@ class AuditoriaService {
       _db.collection(kColeccionAuditoria);
 
   // Eventos en tiempo real
-  Stream<List<EventoAuditoria>> streamEventos({int limite = 200}) {
+  Stream<List<EventoAuditoria>> streamEventos({int limite = 500}) {
     return _coleccion
         .orderBy('fecha', descending: true)
         .limit(limite)
@@ -77,6 +78,25 @@ class AuditoriaService {
     }
   }
 
+  // Dispositivo desde el que se hizo la acción
+  static String plataformaActual() {
+    if (kIsWeb) return 'Navegador web';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return 'Android';
+      case TargetPlatform.iOS:
+        return 'iPhone / iPad';
+      case TargetPlatform.windows:
+        return 'Windows';
+      case TargetPlatform.macOS:
+        return 'macOS';
+      case TargetPlatform.linux:
+        return 'Linux';
+      case TargetPlatform.fuchsia:
+        return 'Fuchsia';
+    }
+  }
+
   // Registrar ingreso
   Future<void> registrarIngreso({required String correo}) async {
     try {
@@ -107,6 +127,9 @@ class AuditoriaService {
         modulo: 'Accesos',
         idReferencia: user.uid,
         datosAdicionales: datos,
+        autorRol: data == null ? null : (data['rol'] ?? '').toString().trim(),
+        autorSucursal:
+            data == null ? null : (data['sucursal'] ?? '').toString().trim(),
       );
     } catch (e) {
       debugPrint('No se pudo registrar el ingreso en la auditoría: $e');
@@ -123,7 +146,15 @@ class AuditoriaService {
     required String idReferencia,
     List<ProductoMovimiento> productos = const [],
     List<CampoInfo> datosAdicionales = const [],
+    String? autorRol,
+    String? autorSucursal,
   }) {
+    // Datos de quien hace la acción
+    final user = FirebaseAuth.instance.currentUser;
+    final permisos = Permisos.instance;
+    final rolActual = permisos.perfil?.rol ??
+        (user != null && permisos.esAdmin ? 'Administrador' : '');
+
     final evento = EventoAuditoria(
       id: '',
       titulo: titulo,
@@ -135,6 +166,13 @@ class AuditoriaService {
       idReferencia: idReferencia,
       productos: productos,
       datosAdicionales: datosAdicionales,
+      autorId: user?.uid ?? '',
+      autorCorreo: user?.email ?? '',
+      autorRol: (autorRol != null && autorRol.isNotEmpty) ? autorRol : rolActual,
+      autorSucursal: (autorSucursal != null && autorSucursal.isNotEmpty)
+          ? autorSucursal
+          : permisos.sucursal,
+      plataforma: plataformaActual(),
     );
     return _coleccion.add(evento.toMap());
   }

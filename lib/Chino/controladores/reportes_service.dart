@@ -175,7 +175,6 @@ class ReportesService {
       categorias: unicos(prods.map((p) => p.categoria)),
       estadosVenta: unicos(['Activo', 'Inactivo', ...ventas.map((v) => v.estado)]),
       estadosProducto: unicos(['Activo', 'Inactivo', ...prods.map((p) => p.estado)]),
-      metodosPago: unicos(ventas.map((v) => v.metodoPago)),
     );
   }
 
@@ -224,10 +223,10 @@ class ReportesService {
       omitidos += r.omitidos;
     }
     if (permisos.reportesLimitados) {
-      // Solo sus ventas
+      // Vendedor: solo sus ventas; encargado: todas las de su sucursal
       ventas = ventas
           .where((v) =>
-              v.vendedorId == permisos.uid &&
+              (!permisos.soloMisVentas || v.vendedorId == permisos.uid) &&
               ReportesCalculos.mismaSucursal(v.sucursal, permisos.sucursal))
           .toList();
       productos = productos

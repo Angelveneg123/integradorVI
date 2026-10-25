@@ -52,6 +52,8 @@ class Sucursal {
   final String direccion;
   final int cantidadPersonal;
   final String estado; // 'Activo' o 'Inactivo'
+  // Prefijo de los códigos de esta sucursal (N -> N001). Vacío = se calcula.
+  final String prefijo;
 
   const Sucursal({
     required this.id,
@@ -62,6 +64,7 @@ class Sucursal {
     required this.direccion,
     required this.cantidadPersonal,
     this.estado = 'Activo',
+    this.prefijo = '',
   });
 
   bool get activo => estado == 'Activo';
@@ -80,6 +83,7 @@ class Sucursal {
       direccion: (data['direccion'] ?? '') as String,
       cantidadPersonal: ((data['cantidadPersonal'] ?? 0) as num).toInt(),
       estado: (data['estado'] ?? 'Activo') as String,
+      prefijo: (data['prefijo'] ?? '') as String,
     );
   }
 
@@ -91,6 +95,7 @@ class Sucursal {
         'direccion': direccion,
         'cantidadPersonal': cantidadPersonal,
         'estado': estado,
+        'prefijo': prefijo,
         'actualizadoEn': FieldValue.serverTimestamp(),
       };
 }

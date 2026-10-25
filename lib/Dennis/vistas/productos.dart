@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../Chino/modelos/materia_prima_modelo.dart';
 import '../../Chino/controladores/materia_prima_service.dart';
@@ -13,38 +14,51 @@ import '../../Chino/controladores/auditoria_service.dart';
 import '../../Chino/modelos/evento_auditoria_modelo.dart'
     show TipoEvento, CampoInfo;
 import '../../Chino/controladores/permisos_service.dart';
+import '../../Chino/controladores/apariencia_service.dart';
+import '../../Chino/vistas/filtros_comunes.dart';
 
 // Colores
-const Color _textoOscuro = Color(0xFF5A3E36);
-const Color _textoClaro = Color(0xFF7A6B65);
-const Color _colorAcento = Color(0xFFA65021);
-const Color _colorBorde = Color(0xFFE8DFD8);
-const Color _fondoInput = Color(0xFFFCFAF7);
+Color get _textoOscuro => Apariencia.instance.textoOscuro;
+Color get _textoClaro => Apariencia.instance.textoClaro;
+Color get _colorAcento => Apariencia.instance.acento;
+Color get _colorBorde => Apariencia.instance.borde;
+Color get _fondoInput => Apariencia.instance.fondoInput;
 const Color _verde = Color(0xFF1F7A3D);
 const Color _rojo = Color(0xFFB3261E);
 
 const List<String> _kEstados = ['Activo', 'Inactivo'];
 
-// Error a texto corto
-String _mensajeError(Object e) => e
-    .toString()
-    .replaceFirst('Bad state: ', '')
-    .replaceFirst('Exception: ', '');
+// Compara sucursales sin mayúsculas ni la palabra "Sucursal"
+bool _igualSucursal(String a, String b) {
+  String n(String s) =>
+      s.trim().toLowerCase().replaceFirst(RegExp(r'^sucursal\s+'), '');
+  return n(a) == n(b);
+}
+
+// Error a texto corto. En web el error de una transacción llega envuelto
+// en "Dart exception: ", por eso se saca el texto de ahí.
+String _mensajeError(Object e) {
+  var t = e.toString();
+  const marca = 'Dart exception: ';
+  final i = t.indexOf(marca);
+  if (i != -1) t = t.substring(i + marca.length);
+  return t.replaceFirst('Bad state: ', '').replaceFirst('Exception: ', '').trim();
+}
 
 InputDecoration _decoracionCampo({String? hint}) {
   return InputDecoration(
     hintText: hint,
-    hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+    hintStyle: TextStyle(color: Apariencia.instance.hint, fontSize: 14),
     filled: true,
     fillColor: _fondoInput,
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorBorde),
+      borderSide: BorderSide(color: _colorBorde),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: _colorAcento),
+      borderSide: BorderSide(color: _colorAcento),
     ),
   );
 }
@@ -84,12 +98,63 @@ class ProductosScreen extends StatefulWidget {
 }
 
 class _ProductosScreenState extends State<ProductosScreen> {
-  static const List<String> _filtros = [
-    'Todos',
-    'Activos',
-    'Inactivos',
-    'Repostería',
-  ];
+  // Categorías del filtro (incluye las antiguas que existan en los
+  // productos y no estén en la lista predeterminada)
+  Map<String, String> get _opcionesCategoria {
+    final extras = _productos
+        .map((p) => p.categoria.trim())
+        .where((c) => c.isNotEmpty && !kCategoriasProducto.contains(c))
+        .toSet()
+        .toList()
+      ..sort();
+    return {
+      '': 'Todas las categorías',
+      for (final c in [...kCategoriasProducto, ...extras]) c: c,
+    };
+  }
+
+  // Sucursales con productos
+  Map<String, String> get _opcionesSucursal => {
+        '': 'Todas las sucursales',
+        for (final s in opcionesUnicas(_productos.map((p) => p.sucursal))) s: s,
+      };
+
+  // Rangos de precio del filtro
+  static const Map<String, String> _opcionesPrecio = {
+    '': 'Todos los precios',
+    'p1': 'Hasta C\$ 25',
+    'p2': 'C\$ 25 a C\$ 50',
+    'p3': 'C\$ 50 a C\$ 100',
+    'p4': 'Más de C\$ 100',
+  };
+
+  bool _enPrecio(double precio) => switch (_filtroPrecio) {
+        'p1' => precio <= 25,
+        'p2' => precio > 25 && precio <= 50,
+        'p3' => precio > 50 && precio <= 100,
+        'p4' => precio > 100,
+        _ => true,
+      };
+
+  bool get _hayFiltros =>
+      _filtroSucursal.isNotEmpty ||
+      _filtroEstado.isNotEmpty ||
+      _filtroCategoria.isNotEmpty ||
+      _filtroPrecio.isNotEmpty ||
+      _filtroDesde != null ||
+      _filtroHasta != null;
+
+  // Quitar todos los filtros
+  void _quitarFiltros() {
+    setState(() {
+      _filtroSucursal = '';
+      _filtroEstado = '';
+      _filtroCategoria = '';
+      _filtroPrecio = '';
+      _filtroDesde = null;
+      _filtroHasta = null;
+    });
+  }
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _buscadorController = TextEditingController();
@@ -99,8 +164,15 @@ class _ProductosScreenState extends State<ProductosScreen> {
   bool _cargando = true;
   String? _error;
 
-  String _filtroSeleccionado = 'Todos';
   String _textoBusqueda = '';
+
+  // Filtros desplegables
+  String _filtroSucursal = '';
+  String _filtroEstado = '';
+  String _filtroCategoria = '';
+  String _filtroPrecio = '';
+  DateTime? _filtroDesde;
+  DateTime? _filtroHasta;
 
   // Suscripción en tiempo real
   StreamSubscription<List<Producto>>? _sub;
@@ -145,13 +217,19 @@ class _ProductosScreenState extends State<ProductosScreen> {
       final coincideTexto = texto.isEmpty ||
           p.nombre.toLowerCase().contains(texto) ||
           p.codigo.toLowerCase().contains(texto);
-      final coincideFiltro = switch (_filtroSeleccionado) {
-        'Todos' => true,
-        'Activos' => p.estado == 'Activo',
-        'Inactivos' => p.estado == 'Inactivo',
-        _ => p.categoria == _filtroSeleccionado,
-      };
-      return coincideTexto && coincideFiltro;
+      final coincideSucursal = _filtroSucursal.isEmpty ||
+          _igualSucursal(p.sucursal, _filtroSucursal);
+      final coincideEstado =
+          _filtroEstado.isEmpty || p.estado == _filtroEstado;
+      final coincideCategoria =
+          _filtroCategoria.isEmpty || p.categoria.trim() == _filtroCategoria;
+      final coincideFecha = fechaEnRango(p.fecha, _filtroDesde, _filtroHasta);
+      return coincideTexto &&
+          coincideSucursal &&
+          coincideEstado &&
+          coincideCategoria &&
+          _enPrecio(p.precio) &&
+          coincideFecha;
     }).toList();
   }
 
@@ -200,7 +278,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Productos',
                       style: TextStyle(
                         fontSize: 26,
@@ -209,7 +287,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Registro de productos por categoría y sucursal',
                       style: TextStyle(fontSize: 13, color: _textoClaro),
                     ),
@@ -223,41 +301,63 @@ class _ProductosScreenState extends State<ProductosScreen> {
                         hint: 'Buscar producto...',
                       ).copyWith(
                         prefixIcon:
-                            const Icon(Icons.search, color: _textoClaro),
+                            Icon(Icons.search, color: _textoClaro),
                         contentPadding:
                             const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                     const SizedBox(height: 14),
 
-                    // Filtros tipo pill
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _filtros.map((filtro) {
-                        final seleccionado = _filtroSeleccionado == filtro;
-                        return ChoiceChip(
-                          label: Text(filtro),
-                          selected: seleccionado,
-                          onSelected: (_) =>
-                              setState(() => _filtroSeleccionado = filtro),
-                          labelStyle: TextStyle(
-                            color: seleccionado ? Colors.white : _textoOscuro,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                          selectedColor: _colorAcento,
-                          backgroundColor: _fondoInput,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            side: BorderSide(
-                              color:
-                                  seleccionado ? _colorAcento : _colorBorde,
-                            ),
-                          ),
-                          showCheckmark: false,
-                        );
-                      }).toList(),
+                    // Filtros desplegables
+                    BarraFiltros(
+                      hayFiltros: _hayFiltros,
+                      onLimpiar: _quitarFiltros,
+                      filtros: [
+                        FiltroDesplegable(
+                          icono: Icons.storefront_outlined,
+                          titulo: 'Sucursal',
+                          valor: _filtroSucursal,
+                          opciones: _opcionesSucursal,
+                          onChanged: (v) => setState(() => _filtroSucursal = v),
+                        ),
+                        FiltroDesplegable(
+                          icono: Icons.toggle_on_outlined,
+                          titulo: 'Estado',
+                          valor: _filtroEstado,
+                          opciones: const {
+                            '': 'Todos los estados',
+                            'Activo': 'Activo',
+                            'Inactivo': 'Inactivo',
+                          },
+                          onChanged: (v) => setState(() => _filtroEstado = v),
+                        ),
+                        FiltroDesplegable(
+                          icono: Icons.category_outlined,
+                          titulo: 'Categoría',
+                          valor: _filtroCategoria,
+                          opciones: _opcionesCategoria,
+                          onChanged: (v) => setState(() => _filtroCategoria = v),
+                        ),
+                        FiltroDesplegable(
+                          icono: Icons.payments_outlined,
+                          titulo: 'Precio',
+                          valor: _filtroPrecio,
+                          opciones: _opcionesPrecio,
+                          onChanged: (v) => setState(() => _filtroPrecio = v),
+                        ),
+                        FiltroFecha(
+                          etiqueta: 'Desde',
+                          fecha: _filtroDesde,
+                          maximo: _filtroHasta,
+                          onChanged: (f) => setState(() => _filtroDesde = f),
+                        ),
+                        FiltroFecha(
+                          etiqueta: 'Hasta',
+                          fecha: _filtroHasta,
+                          minimo: _filtroDesde,
+                          onChanged: (f) => setState(() => _filtroHasta = f),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 14),
 
@@ -284,7 +384,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'Listado',
                       style: TextStyle(
                         fontSize: 14,
@@ -295,7 +395,7 @@ class _ProductosScreenState extends State<ProductosScreen> {
                     const SizedBox(height: 10),
 
                     if (_cargando)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.symmetric(vertical: 40),
                         child: Center(
                           child: CircularProgressIndicator(
@@ -311,10 +411,12 @@ class _ProductosScreenState extends State<ProductosScreen> {
                     else if (lista.isEmpty)
                       _MensajeEstado(
                         icono: Icons.inventory_2_outlined,
-                        texto: Permisos.instance.puedeEditarProductos
-                            ? 'No se encontraron productos.\n'
-                                'Toca "Nuevo" para registrar el primero.'
-                            : 'No se encontraron productos.',
+                        texto: _hayFiltros || _textoBusqueda.isNotEmpty
+                            ? 'No hay productos con los filtros seleccionados.'
+                            : Permisos.instance.puedeEditarProductos
+                                ? 'No se encontraron productos.\n'
+                                    'Toca "Nuevo" para registrar el primero.'
+                                : 'No se encontraron productos.',
                       )
                     else
                       Column(
@@ -356,7 +458,7 @@ class _MensajeEstado extends StatelessWidget {
             Text(
               texto,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _textoClaro),
+              style: TextStyle(color: _textoClaro),
             ),
           ],
         ),
@@ -407,7 +509,7 @@ class _TarjetaProducto extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Apariencia.instance.superficie,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: _colorBorde),
           ),
@@ -416,7 +518,7 @@ class _TarjetaProducto extends StatelessWidget {
             children: [
               Text(
                 producto.nombre,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                   color: _textoOscuro,
@@ -425,9 +527,9 @@ class _TarjetaProducto extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 'Cantidad: ${producto.cantidad.toStringAsFixed(0)} en stock · ${producto.sucursal}',
-                style: const TextStyle(fontSize: 12, color: _textoClaro),
+                style: TextStyle(fontSize: 12, color: _textoClaro),
               ),
-              const Divider(height: 20, color: _colorBorde),
+              Divider(height: 20, color: _colorBorde),
               Row(
                 children: [
                   _EtiquetaEstado(activo: producto.estado == 'Activo'),
@@ -443,14 +545,14 @@ class _TarjetaProducto extends StatelessWidget {
                   const Spacer(),
                   Text(
                     'REF: ${producto.codigo}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: _textoOscuro,
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right, size: 18, color: _textoClaro),
+                  Icon(Icons.chevron_right, size: 18, color: _textoClaro),
                 ],
               ),
             ],
@@ -492,6 +594,11 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
   String? _sucursal; // nombre de la sucursal
   late List<Ingrediente> _ingredientes;
   bool _guardando = false;
+  // Id del producto nuevo: el mismo en todos los intentos de guardado
+  late final String _idAlta = widget.service.nuevoId();
+  // Código reservado: se reutiliza si se reintenta el guardado
+  String? _codigoAlta;
+  String? _codigoAltaSucursal;
 
   final SucursalesService _sucursalesService = SucursalesService();
   final MateriaPrimaService _materiaPrimaService = MateriaPrimaService();
@@ -543,16 +650,6 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
   double? _leerNumero(TextEditingController c) =>
       double.tryParse(c.text.trim().replaceAll(',', '.'));
 
-  // Siguiente código libre
-  String _generarCodigo() {
-    int mayor = 0;
-    for (final producto in widget.productos) {
-      final numero = int.tryParse(producto.codigo.replaceFirst('P', ''));
-      if (numero != null && numero > mayor) mayor = numero;
-    }
-    return 'P${(mayor + 1).toString().padLeft(3, '0')}';
-  }
-
   Future<void> _guardar() async {
     final nombre = _nombreController.text.trim();
     final precio = _leerNumero(_precioController);
@@ -565,19 +662,43 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
       _aviso('Ingrese un precio válido');
       return;
     }
+    if (_categoriaController.text.trim().isEmpty) {
+      _aviso('Selecciona una categoría.');
+      return;
+    }
     if (_sucursal == null) {
       _aviso('Selecciona una sucursal.');
       return;
     }
 
-    final categoria = _categoriaController.text.trim().isEmpty
-        ? 'Pan'
-        : _categoriaController.text.trim();
-    final cantidad = _leerNumero(_cantidadController) ?? 0;
-    final stockMinimo = _leerNumero(_stockMinimoController) ?? 0;
+    // Cantidad y stock mínimo obligatorios
+    final cantidad = _leerNumero(_cantidadController);
+    if (_cantidadController.text.trim().isEmpty ||
+        cantidad == null ||
+        cantidad < 0) {
+      _aviso('Ingrese una cantidad válida.');
+      return;
+    }
+    final stockMinimo = _leerNumero(_stockMinimoController);
+    if (_stockMinimoController.text.trim().isEmpty ||
+        stockMinimo == null ||
+        stockMinimo <= 0) {
+      _aviso('Ingrese un stock mínimo mayor a 0.');
+      return;
+    }
+    // Al menos un ingrediente
+    if (_ingredientes.isEmpty) {
+      _aviso('Añade al menos un ingrediente.');
+      return;
+    }
 
+    final categoria = _categoriaController.text.trim();
+
+    if (_guardando) return; // ignora toques repetidos
     setState(() => _guardando = true);
     final messenger = ScaffoldMessenger.of(context);
+    // Ingredientes descontados al crear el producto
+    var consumos = <ConsumoIngrediente>[];
     try {
       if (_editando) {
         final original = widget.producto!;
@@ -598,7 +719,10 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           sucursal: _sucursal!,
           ingredientes: List.from(_ingredientes),
         );
-        await widget.service.actualizarProducto(actualizado);
+        consumos = await widget.service.actualizarProductoConIngredientes(
+          actualizado,
+          cantidadAnterior: original.cantidad,
+        );
 
         // Cambios para la auditoría
         final cambios = <String>[
@@ -617,11 +741,16 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           if (original.sucursal != actualizado.sucursal)
             'Sucursal: ${original.sucursal} → ${actualizado.sucursal}',
         ];
+        final detalleAuditoria = <String>[
+          ...cambios,
+          if (consumos.isNotEmpty)
+            'Ingredientes descontados: ${consumos.map((c) => c.resumen).join(' · ')}',
+        ];
         _auditarProducto(
           TipoEvento.editar,
           'Producto "${actualizado.nombre}" actualizado',
           actualizado,
-          detalle: cambios.isEmpty ? null : cambios.join(' · '),
+          detalle: detalleAuditoria.isEmpty ? null : detalleAuditoria.join(' · '),
         );
 
         original
@@ -634,8 +763,14 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           ..sucursal = actualizado.sucursal
           ..ingredientes = actualizado.ingredientes;
       } else {
+        // Código con el prefijo de la sucursal elegida (N001, S001...)
+        if (_codigoAlta == null || _codigoAltaSucursal != _sucursal) {
+          _codigoAlta = await widget.service.siguienteCodigo(_sucursal!);
+          _codigoAltaSucursal = _sucursal;
+        }
+        final codigoNuevo = _codigoAlta!;
         final nuevo = Producto(
-          codigo: _generarCodigo(),
+          codigo: codigoNuevo,
           nombre: nombre,
           categoria: categoria,
           precio: precio,
@@ -645,11 +780,17 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           sucursal: _sucursal!,
           ingredientes: List.from(_ingredientes),
         );
-        nuevo.id = await widget.service.agregarProducto(nuevo);
+        final alta = await widget.service
+            .agregarProductoConIngredientes(nuevo, id: _idAlta);
+        nuevo.id = alta.id;
+        consumos = alta.consumos;
         _auditarProducto(
           TipoEvento.crear,
           'Producto "${nuevo.nombre}" creado',
           nuevo,
+          detalle: consumos.isEmpty
+              ? null
+              : 'Ingredientes descontados: ${consumos.map((c) => c.resumen).join(' · ')}',
         );
       }
 
@@ -658,24 +799,68 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            _editando
-                ? 'Producto actualizado correctamente'
-                : 'Producto guardado correctamente',
+            consumos.isNotEmpty
+                ? '${_editando ? 'Producto actualizado' : 'Producto guardado'}. Se descontaron los ingredientes del stock.'
+                : _editando
+                    ? 'Producto actualizado correctamente'
+                    : 'Producto guardado correctamente',
           ),
+        ),
+      );
+    } on ProductoDuplicadoException {
+      // El primer toque sí se guardó: se cierra sin duplicar
+      if (!mounted) return;
+      Navigator.pop(context);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Este producto ya estaba registrado. No se guardó otra vez.'),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _guardando = false);
-      _aviso('No se pudo guardar: ${_mensajeError(e)}');
+      final texto = _mensajeError(e);
+      if (texto.startsWith('No hay suficientes ingredientes')) {
+        // Sin stock de ingredientes: el formulario queda abierto
+        _aviso('$texto Baja la cantidad o registra una entrada en Ingredientes.');
+      } else {
+        _aviso('No se pudo guardar: $texto');
+      }
     }
+  }
+
+  // Unidades que se van a producir al guardar: al editar solo cuenta lo que
+  // aumenta la cantidad, al crear cuenta toda
+  double _unidadesAProducir() {
+    final cantidad = _leerNumero(_cantidadController) ?? 0;
+    final anterior = _editando ? widget.producto!.cantidad : 0.0;
+    final unidades = cantidad - anterior;
+    return unidades < 0 ? 0 : unidades;
+  }
+
+  // Cuánto de un ingrediente (en la unidad de su stock) ya piden los que están
+  // agregados en la lista, por unidad de producto
+  double _yaUsadoDe(MateriaPrima materia) {
+    var total = 0.0;
+    for (final i in _ingredientes) {
+      if (i.nombre.trim().toLowerCase() != materia.nombre.trim().toLowerCase()) {
+        continue;
+      }
+      final c = leerCantidadReceta(i.cantidad);
+      if (c == null) continue;
+      total += convertirUnidad(c.valor, c.unidad, materia.unidadMedida) ?? 0;
+    }
+    return total;
   }
 
   // Agregar ingrediente
 
   void _agregarIngrediente() {
     MateriaPrima? materiaSeleccionada;
+    // Unidad de la receta (puede ser distinta a la del stock)
+    String? unidadSeleccionada;
     final cantidad = TextEditingController();
+    String? errorIngrediente;
 
     showDialog(
       context: context,
@@ -683,11 +868,11 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: Apariencia.instance.superficie,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              title: const Text(
+              title: Text(
                 'Añadir ingrediente',
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
@@ -704,18 +889,28 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
                     );
                   }
                   if (!snapshot.hasData) {
-                    return const Padding(
+                    return Padding(
                       padding: EdgeInsets.symmetric(vertical: 18),
                       child: LinearProgressIndicator(color: _colorAcento),
                     );
                   }
 
-                  final materias =
-                      snapshot.data!.where((m) => m.activo).toList();
+                  // Solo ingredientes de la sucursal del producto
+                  final sucursalProducto = _sucursal;
+                  if (sucursalProducto == null) {
+                    return Text(
+                      'Selecciona primero la sucursal del producto.',
+                      style: TextStyle(color: _textoClaro),
+                    );
+                  }
+                  final materias = snapshot.data!
+                      .where((m) =>
+                          m.activo && _igualSucursal(m.sucursal, sucursalProducto))
+                      .toList();
 
                   if (materias.isEmpty) {
-                    return const Text(
-                      'No hay ingredientes activos registrados.',
+                    return Text(
+                      'No hay ingredientes activos en $sucursalProducto.',
                       style: TextStyle(color: _textoClaro),
                     );
                   }
@@ -734,7 +929,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
                           return DropdownMenuItem<String>(
                             value: materia.id,
                             child: Text(
-                              '${materia.nombre} (${materia.unidadMedida})',
+                              '${materia.nombre} · ${materia.cantidadConUnidad}',
                               overflow: TextOverflow.ellipsis,
                             ),
                           );
@@ -744,19 +939,94 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
                             materiaSeleccionada = materias.firstWhere(
                               (materia) => materia.id == value,
                             );
+                            // Empieza con la unidad del stock
+                            unidadSeleccionada =
+                                materiaSeleccionada!.unidadMedida;
+                            errorIngrediente = null;
                           });
                         },
                       ),
                       const SizedBox(height: 14),
-                      _etiqueta('Cantidad'),
-                      TextField(
-                        controller: cantidad,
-                        decoration: _decoracionCampo(
-                          hint: materiaSeleccionada == null
-                              ? 'Ejemplo: 500 g'
-                              : 'Ejemplo: 500 ${materiaSeleccionada!.unidadMedida}',
-                        ),
+                      _etiqueta('Cantidad por cada unidad de producto'),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: cantidad,
+                              // Solo números (con un separador decimal)
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              inputFormatters: [
+                                TextInputFormatter.withFunction(
+                                  (anterior, nuevo) => RegExp(r'^\d*[.,]?\d*$')
+                                          .hasMatch(nuevo.text)
+                                      ? nuevo
+                                      : anterior,
+                                ),
+                              ],
+                              onChanged: (_) {
+                                if (errorIngrediente != null) {
+                                  setDialogState(() => errorIngrediente = null);
+                                }
+                              },
+                              decoration: _decoracionCampo(
+                                hint: 'Ejemplo: 10',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          // Unidades del mismo tipo que el ingrediente (lt -> lt, ml)
+                          SizedBox(
+                            width: 140,
+                            child: DropdownButtonFormField<String>(
+                              key: ValueKey(materiaSeleccionada?.id),
+                              initialValue: unidadSeleccionada,
+                              isExpanded: true,
+                              decoration: _decoracionCampo(),
+                              items: (materiaSeleccionada == null
+                                      ? <String>[]
+                                      : unidadesCompatibles(
+                                          materiaSeleccionada!.unidadMedida,
+                                        ))
+                                  .map(
+                                    (u) => DropdownMenuItem<String>(
+                                      value: u,
+                                      child: Text(u),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: materiaSeleccionada == null
+                                  ? null
+                                  : (v) => setDialogState(
+                                        () => unidadSeleccionada = v,
+                                      ),
+                            ),
+                          ),
+                        ],
                       ),
+                      if (materiaSeleccionada != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Disponible: ${materiaSeleccionada!.cantidadConUnidad}',
+                            style: TextStyle(fontSize: 12, color: _textoClaro),
+                          ),
+                        ),
+                      if (errorIngrediente != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            errorIngrediente!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: _rojo,
+                            ),
+                          ),
+                        ),
                     ],
                   );
                 },
@@ -764,21 +1034,69 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text(
+                  child: Text(
                     'Cancelar',
                     style: TextStyle(color: _textoOscuro),
                   ),
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    if (materiaSeleccionada == null) return;
-                    if (cantidad.text.trim().isEmpty) return;
+                    if (materiaSeleccionada == null) {
+                      setDialogState(
+                        () => errorIngrediente = 'Selecciona un ingrediente.',
+                      );
+                      return;
+                    }
+                    final valor = double.tryParse(
+                      cantidad.text.trim().replaceAll(',', '.'),
+                    );
+                    if (valor == null || valor <= 0) {
+                      setDialogState(
+                        () => errorIngrediente =
+                            'Escribe una cantidad numérica mayor a 0.',
+                      );
+                      return;
+                    }
+
+                    // Revisa que alcance el stock del ingrediente
+                    final unidades = _unidadesAProducir();
+                    if (unidades > 0) {
+                      final enStock = convertirUnidad(
+                        valor,
+                        unidadSeleccionada ?? materiaSeleccionada!.unidadMedida,
+                        materiaSeleccionada!.unidadMedida,
+                      );
+                      if (enStock != null) {
+                        final necesario = redondearCantidad(
+                          (enStock + _yaUsadoDe(materiaSeleccionada!)) * unidades,
+                        );
+                        final disponible = materiaSeleccionada!.cantidad;
+                        if (necesario > disponible + 1e-9) {
+                          final u = materiaSeleccionada!.unidadMedida.toLowerCase();
+                          setDialogState(
+                            () => errorIngrediente = disponible <= 0
+                                ? 'Stock insuficiente: \"${materiaSeleccionada!.nombre}\" está agotado.'
+                                : 'Stock insuficiente de \"${materiaSeleccionada!.nombre}\": '
+                                    'disponible ${formatearCantidad(disponible)} $u, '
+                                    'se necesitan ${formatearCantidad(necesario)} $u '
+                                    'para ${formatearCantidad(unidades)} unidades.',
+                          );
+                          return;
+                        }
+                      }
+                    }
+
+                    final numero = valor == valor.roundToDouble()
+                        ? valor.toInt().toString()
+                        : valor.toString();
 
                     setState(() {
                       _ingredientes.add(
                         Ingrediente(
                           nombre: materiaSeleccionada!.nombre,
-                          cantidad: cantidad.text.trim(),
+                          // Se guarda como "10 ml" (número + unidad)
+                          cantidad:
+                              '$numero ${unidadSeleccionada ?? materiaSeleccionada!.unidadMedida}',
                         ),
                       );
                     });
@@ -807,7 +1125,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
         padding: const EdgeInsets.only(bottom: 6),
         child: Text(
           texto,
-          style: const TextStyle(fontSize: 12, color: _textoClaro),
+          style: TextStyle(fontSize: 12, color: _textoClaro),
         ),
       );
 
@@ -832,6 +1150,32 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
     );
   }
 
+  // Selector de categoría (lista predeterminada)
+  Widget _campoCategoria() {
+    final actual = _categoriaController.text.trim();
+    final opciones = [...kCategoriasProducto];
+    // Conserva categorías antiguas escritas a mano al editar un producto
+    if (actual.isNotEmpty && !opciones.contains(actual)) {
+      opciones.add(actual);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _etiqueta('Categoría'),
+        DropdownButtonFormField<String>(
+          initialValue: actual.isEmpty ? null : actual,
+          isExpanded: true,
+          hint: const Text('Seleccionar'),
+          items: opciones
+              .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+              .toList(),
+          onChanged: (v) => setState(() => _categoriaController.text = v ?? ''),
+          decoration: _decoracionCampo(),
+        ),
+      ],
+    );
+  }
+
   // Selector de sucursal
   Widget _campoSucursal() {
     return StreamBuilder<List<Sucursal>>(
@@ -844,7 +1188,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           );
         }
         if (!snapshot.hasData) {
-          return const Padding(
+          return Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: LinearProgressIndicator(color: _colorAcento),
           );
@@ -860,10 +1204,10 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF1D2),
+              color: Apariencia.instance.aviso,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Text(
+            child: Text(
               'No hay sucursales activas. Registra una en el módulo '
               'Sucursales (menú lateral) para poder continuar.',
               style: TextStyle(fontSize: 12, color: _textoOscuro),
@@ -895,7 +1239,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: _colorBorde),
         ),
-        child: const Text(
+        child: Text(
           'No hay ingredientes agregados',
           style: TextStyle(fontSize: 13, color: _textoClaro),
         ),
@@ -908,7 +1252,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.only(left: 14, right: 4),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Apariencia.instance.superficie,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: _colorBorde),
           ),
@@ -917,7 +1261,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
               Expanded(
                 child: Text(
                   ingrediente.nombre,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: _textoOscuro,
@@ -926,7 +1270,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
               ),
               Text(
                 ingrediente.cantidad,
-                style: const TextStyle(fontSize: 13, color: _textoClaro),
+                style: TextStyle(fontSize: 13, color: _textoClaro),
               ),
               IconButton(
                 onPressed: _guardando
@@ -952,8 +1296,8 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
             children: [
               TextButton.icon(
                 onPressed: _guardando ? null : () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-                label: const Text(
+                icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+                label: Text(
                   'Productos',
                   style: TextStyle(color: _textoOscuro),
                 ),
@@ -966,7 +1310,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
               Center(
                 child: Text(
                   _editando ? 'Editar producto' : 'Nuevo producto',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
                     color: _textoOscuro,
@@ -983,12 +1327,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
               ),
               const SizedBox(height: 16),
 
-              _campoTexto(
-                etiqueta: 'Categoría',
-                controller: _categoriaController,
-                hint: 'Ej. Pan, Repostería',
-                capitalizacion: TextCapitalization.sentences,
-              ),
+              _campoCategoria(),
               const SizedBox(height: 16),
 
               Row(
@@ -1062,7 +1401,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
               _campoSucursal(),
               const SizedBox(height: 22),
 
-              const Text(
+              Text(
                 'Ingredientes',
                 style: TextStyle(
                   fontSize: 15,
@@ -1131,7 +1470,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _textoOscuro,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: const BorderSide(color: _textoOscuro),
+                    side: BorderSide(color: _textoOscuro),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -1189,6 +1528,213 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
     if (mounted) setState(() {});
   }
 
+  // Pregunta qué hacer con el stock al desactivar un producto
+  Future<_DecisionDesactivar?> _preguntarDesactivar() async {
+    final unidades = _producto.cantidad;
+    final cantidadTxt = unidades == unidades.roundToDouble()
+        ? unidades.toInt().toString()
+        : unidades.toString();
+    const motivos = ['Vencido', 'Dañado', 'Otro'];
+    final detalleController = TextEditingController();
+    var darDeBaja = false;
+    var motivo = motivos.first;
+    String? error;
+
+    final resultado = await showDialog<_DecisionDesactivar>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            Widget opcion({
+              required bool valor,
+              required String titulo,
+              required String texto,
+            }) {
+              final seleccionada = darDeBaja == valor;
+              return InkWell(
+                onTap: () => setStateDialog(() {
+                  darDeBaja = valor;
+                  error = null;
+                }),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: seleccionada
+                        ? _colorAcento.withValues(alpha: 0.10)
+                        : _fondoInput,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: seleccionada ? _colorAcento : _colorBorde,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        seleccionada
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                        size: 20,
+                        color: seleccionada ? _colorAcento : _textoClaro,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              titulo,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: _textoOscuro,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              texto,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _textoClaro,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: Apariencia.instance.superficie,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Text(
+                'Desactivar producto',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: _textoOscuro,
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '"${_producto.nombre}" tiene $cantidadTxt unidades en '
+                      'stock. ¿Qué hacemos con ellas?',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _textoClaro,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    opcion(
+                      valor: false,
+                      titulo: 'Solo desactivar',
+                      texto: 'El stock se conserva y no se podrá vender. '
+                          'Al reactivarlo, sigue ahí.',
+                    ),
+                    const SizedBox(height: 8),
+                    opcion(
+                      valor: true,
+                      titulo: 'Desactivar y dar de baja',
+                      texto: 'El stock pasa a 0 y queda registrado como '
+                          'merma, con su motivo.',
+                    ),
+                    if (darDeBaja) ...[
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: motivo,
+                        isExpanded: true,
+                        items: motivos
+                            .map(
+                              (m) => DropdownMenuItem(value: m, child: Text(m)),
+                            )
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) {
+                            setStateDialog(() {
+                              motivo = v;
+                              error = null;
+                            });
+                          }
+                        },
+                        decoration: _decoracionCampo(),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: detalleController,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: _decoracionCampo(
+                          hint: motivo == 'Otro'
+                              ? 'Explica el motivo'
+                              : 'Detalle (opcional)',
+                        ),
+                      ),
+                    ],
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          error!,
+                          style: const TextStyle(fontSize: 12, color: _rojo),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: TextButton.styleFrom(foregroundColor: _textoClaro),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final detalle = detalleController.text.trim();
+                    if (darDeBaja && motivo == 'Otro' && detalle.isEmpty) {
+                      setStateDialog(
+                        () => error = 'Explica el motivo de la baja.',
+                      );
+                      return;
+                    }
+                    Navigator.pop(
+                      dialogContext,
+                      _DecisionDesactivar(
+                        darDeBaja: darDeBaja,
+                        motivo: !darDeBaja
+                            ? ''
+                            : (detalle.isEmpty ? motivo : '$motivo - $detalle'),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _colorAcento,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
+                  child: const Text('Continuar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    Future.delayed(
+      const Duration(milliseconds: 600),
+      detalleController.dispose,
+    );
+    return resultado;
+  }
+
   Future<void> _cambiarEstado() async {
     final id = _producto.id;
     if (id == null) {
@@ -1201,22 +1747,43 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
     }
 
     final nuevoEstado = _activo ? 'Inactivo' : 'Activo';
+
+    // Si tiene stock, se pregunta qué hacer con las unidades
+    var darDeBaja = false;
+    var motivoBaja = '';
+    final unidades = _producto.cantidad;
+    if (nuevoEstado == 'Inactivo' && unidades > 0) {
+      final decision = await _preguntarDesactivar();
+      if (decision == null || !mounted) return; // cancelado
+      darDeBaja = decision.darDeBaja;
+      motivoBaja = decision.motivo;
+    }
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       final estadoAnterior = _producto.estado;
-      await widget.service.cambiarEstado(id, nuevoEstado);
+      if (darDeBaja) {
+        await widget.service.desactivarConMerma(id: id, motivo: motivoBaja);
+      } else {
+        await widget.service.cambiarEstado(id, nuevoEstado);
+      }
       _auditarProducto(
         TipoEvento.editar,
         nuevoEstado == 'Activo'
             ? 'Producto "${_producto.nombre}" activado'
             : 'Producto "${_producto.nombre}" desactivado',
         _producto,
-        detalle: 'Estado: $estadoAnterior → $nuevoEstado',
+        detalle: darDeBaja
+            ? 'Estado: $estadoAnterior → $nuevoEstado · Merma de '
+                '${unidades == unidades.roundToDouble() ? unidades.toInt() : unidades} '
+                'unidades ($motivoBaja)'
+            : 'Estado: $estadoAnterior → $nuevoEstado',
       );
       if (!mounted) return;
       setState(() {
         _producto.estado = nuevoEstado;
+        if (darDeBaja) _producto.cantidad = 0;
         _procesando = false;
       });
       messenger.showSnackBar(
@@ -1224,7 +1791,9 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
           content: Text(
             nuevoEstado == 'Activo'
                 ? 'Producto activado'
-                : 'Producto desactivado',
+                : (darDeBaja
+                    ? 'Producto desactivado y stock dado de baja'
+                    : 'Producto desactivado'),
           ),
         ),
       );
@@ -1275,6 +1844,7 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
     );
     if (confirmar != true || !mounted) return;
 
+    if (_procesando) return; // ignora toques repetidos
     setState(() => _procesando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -1300,7 +1870,7 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
 
   Widget _tituloSeccion(String texto) => Text(
         texto,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w700,
           color: _textoOscuro,
@@ -1308,7 +1878,7 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
       );
 
   BoxDecoration get _decoracionTarjeta => BoxDecoration(
-        color: Colors.white,
+        color: Apariencia.instance.superficie,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _colorBorde),
       );
@@ -1326,8 +1896,8 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
             children: [
               TextButton.icon(
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-                label: const Text(
+                icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+                label: Text(
                   'Productos',
                   style: TextStyle(color: _textoOscuro),
                 ),
@@ -1350,14 +1920,14 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Producto',
                             style: TextStyle(fontSize: 12, color: _textoClaro),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             p.nombre,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
                               color: _textoOscuro,
@@ -1410,7 +1980,7 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: _decoracionTarjeta,
                 child: p.ingredientes.isEmpty
-                    ? const Padding(
+                    ? Padding(
                         padding: EdgeInsets.symmetric(vertical: 12),
                         child: Text(
                           'Este producto no tiene ingredientes registrados.',
@@ -1476,6 +2046,13 @@ class _DetalleProductoScreenState extends State<DetalleProductoScreen> {
   }
 }
 
+// Resultado del diálogo de desactivar con stock
+class _DecisionDesactivar {
+  final bool darDeBaja;
+  final String motivo;
+  const _DecisionDesactivar({required this.darDeBaja, required this.motivo});
+}
+
 class _FilaInfo extends StatelessWidget {
   final String etiqueta;
   final String valor;
@@ -1490,14 +2067,14 @@ class _FilaInfo extends StatelessWidget {
       decoration: BoxDecoration(
         border: ultima
             ? null
-            : const Border(bottom: BorderSide(color: _colorBorde)),
+            : Border(bottom: BorderSide(color: _colorBorde)),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
               etiqueta,
-              style: const TextStyle(fontSize: 13, color: _textoClaro),
+              style: TextStyle(fontSize: 13, color: _textoClaro),
             ),
           ),
           const SizedBox(width: 12),
@@ -1505,7 +2082,7 @@ class _FilaInfo extends StatelessWidget {
             child: Text(
               valor,
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
                 color: _textoOscuro,

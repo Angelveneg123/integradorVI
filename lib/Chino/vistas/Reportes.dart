@@ -6,16 +6,17 @@ import '../controladores/reportes_exportador.dart';
 import '../controladores/reportes_service.dart';
 import '../../Henry/modelos/sucursal_modelo.dart' show etiquetaSucursal;
 import '../controladores/permisos_service.dart';
+import '../controladores/apariencia_service.dart';
 
 // Colores
-const Color _textoOscuro = Color(0xFF5A3E36);
-const Color _textoClaro = Color(0xFF7A6B65);
-const Color _colorAcento = Color(0xFFA65021);
-const Color _colorBorde = Color(0xFFE8DFD8);
-const Color _fondoInput = Color(0xFFFCFAF7);
+Color get _textoOscuro => Apariencia.instance.textoOscuro;
+Color get _textoClaro => Apariencia.instance.textoClaro;
+Color get _colorAcento => Apariencia.instance.acento;
+Color get _colorBorde => Apariencia.instance.borde;
+Color get _fondoInput => Apariencia.instance.fondoInput;
 const Color _colorExcel = Color(0xFF1F7244);
 const Color _colorError = Color(0xFFB3261E);
-const Color _colorIndicador = Color(0xFFFCEFA0);
+Color get _colorIndicador => Apariencia.instance.indicador;
 
 const String _mensajeSinDatos =
     'No hay datos para generar este reporte con los filtros seleccionados. '
@@ -24,6 +25,9 @@ const String _mensajeSinDatos =
 // Máximo de filas en pantalla
 const int _maxFilasPantalla = 300;
 
+// Máximo de filas del detalle en pantalla
+const int _maxFilasDetalle = 150;
+
 InputDecoration _decoracionCampo() {
   return InputDecoration(
     filled: true,
@@ -31,11 +35,11 @@ InputDecoration _decoracionCampo() {
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: _colorBorde),
+      borderSide: BorderSide(color: _colorBorde),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: _colorAcento),
+      borderSide: BorderSide(color: _colorAcento),
     ),
   );
 }
@@ -105,9 +109,6 @@ class _ReportesScreenState extends State<ReportesScreen> {
       categoria: f.categoria == kTodasLasCategorias || o.categorias.contains(f.categoria)
           ? f.categoria
           : kTodasLasCategorias,
-      metodoPago: f.metodoPago == kTodosLosMetodos || o.metodosPago.contains(f.metodoPago)
-          ? f.metodoPago
-          : kTodosLosMetodos,
     );
   }
 
@@ -120,7 +121,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
       _categoria = c;
       _tipo = _tiposDeCategoria(c).first;
       // El estado cambia según la categoría
-      _filtros = _filtros.copyWith(estado: kTodosLosEstados, metodoPago: kTodosLosMetodos);
+      _filtros = _filtros.copyWith(estado: kTodosLosEstados);
     });
   }
 
@@ -176,7 +177,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
 
   Widget _etiqueta(String texto) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Text(texto, style: const TextStyle(fontSize: 12, color: _textoClaro)),
+        child: Text(texto, style: TextStyle(fontSize: 12, color: _textoClaro)),
       );
 
   Widget _selector({
@@ -231,9 +232,9 @@ class _ReportesScreenState extends State<ReportesScreen> {
                 children: [
                   Expanded(
                     child: Text(_fmtFecha.format(valor),
-                        style: const TextStyle(color: _textoOscuro)),
+                        style: TextStyle(color: _textoOscuro)),
                   ),
-                  const Icon(Icons.calendar_today_outlined, size: 16, color: _textoClaro),
+                  Icon(Icons.calendar_today_outlined, size: 16, color: _textoClaro),
                 ],
               ),
             ),
@@ -247,7 +248,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Apariencia.instance.superficie,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: _colorBorde),
         ),
@@ -275,7 +276,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Reportes',
+                    Text('Reportes',
                         style: TextStyle(
                             fontSize: 22, fontWeight: FontWeight.w800, color: _textoOscuro)),
                     const SizedBox(height: 4),
@@ -303,7 +304,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
                               selected: _categoria == c,
                               selectedColor: _colorAcento,
                               backgroundColor: _fondoInput,
-                              side: const BorderSide(color: _colorBorde),
+                              side: BorderSide(color: _colorBorde),
                               labelStyle: TextStyle(
                                 color: _categoria == c ? Colors.white : _textoOscuro,
                                 fontWeight: FontWeight.w600,
@@ -333,18 +334,18 @@ class _ReportesScreenState extends State<ReportesScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(_tipo.descripcion,
-                          style: const TextStyle(fontSize: 12, color: _textoClaro)),
+                          style: TextStyle(fontSize: 12, color: _textoClaro)),
                     ]),
 
                     const SizedBox(height: 14),
 
                     // Filtros
                     _tarjeta(children: [
-                      const Text('Filtros',
+                      Text('Filtros',
                           style: TextStyle(
                               fontSize: 15, fontWeight: FontWeight.w700, color: _textoOscuro)),
                       if (_cargandoOpciones)
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.only(top: 12),
                           child: LinearProgressIndicator(color: _colorAcento),
                         ),
@@ -396,7 +397,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
                           child: Text(
                             'Sucursal: ${etiquetaSucursal(Permisos.instance.sucursal)} '
                             '(solo tus ventas y tu sucursal)',
-                            style: const TextStyle(fontSize: 12, color: _textoOscuro),
+                            style: TextStyle(fontSize: 12, color: _textoOscuro),
                           ),
                         ),
                       if (_tipo.usa(FiltroReporte.sucursal) && _esAdmin)
@@ -436,17 +437,6 @@ class _ReportesScreenState extends State<ReportesScreen> {
                           onChanged: (v) =>
                               setState(() => _filtros = _filtros.copyWith(estado: v)),
                         ),
-                      // Método de pago solo si hay ventas con él
-                      if (_tipo.usa(FiltroReporte.metodoPago) &&
-                          _opciones.metodosPago.isNotEmpty)
-                        _selector(
-                          etiqueta: 'Método de pago',
-                          valor: _filtros.metodoPago,
-                          todos: kTodosLosMetodos,
-                          opciones: _opciones.metodosPago,
-                          onChanged: (v) =>
-                              setState(() => _filtros = _filtros.copyWith(metodoPago: v)),
-                        ),
                     ]),
 
                     const SizedBox(height: 28),
@@ -475,7 +465,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _textoOscuro,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          side: const BorderSide(color: _colorBorde),
+                          side: BorderSide(color: _colorBorde),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         child: const Text('LIMPIAR CAMPOS',
@@ -518,6 +508,10 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
   TablaReporte? _tabla;
   String? _mensaje;
   bool _exportando = false;
+
+  // Estado de las tarjetas con detalle
+  bool _expandirTodo = false;
+  int _versionExp = 0;
   int _solicitud = 0;
 
   @override
@@ -583,7 +577,7 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
   Widget _estadoVacio({
     required IconData icono,
     required String mensaje,
-    Color colorIcono = _textoClaro,
+    Color? colorIcono,
     bool reintentar = false,
   }) {
     return Padding(
@@ -594,15 +588,15 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
             width: 72,
             height: 72,
             decoration: BoxDecoration(
-              color: const Color(0xFFF5EEEE),
+              color: Apariencia.instance.acentoSuave,
               borderRadius: BorderRadius.circular(36),
             ),
-            child: Icon(icono, size: 34, color: colorIcono),
+            child: Icon(icono, size: 34, color: colorIcono ?? _textoClaro),
           ),
           const SizedBox(height: 16),
           Text(mensaje,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, color: _textoClaro, height: 1.4)),
+              style: TextStyle(fontSize: 14, color: _textoClaro, height: 1.4)),
           const SizedBox(height: 22),
           if (reintentar) ...[
             SizedBox(
@@ -629,7 +623,7 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: _textoOscuro,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                side: const BorderSide(color: _colorBorde),
+                side: BorderSide(color: _colorBorde),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               child: const Text('MODIFICAR FILTROS',
@@ -650,21 +644,234 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(i.etiqueta, style: const TextStyle(fontSize: 12, color: _textoClaro)),
+            Text(i.etiqueta, style: TextStyle(fontSize: 12, color: _textoClaro)),
             const SizedBox(height: 2),
             Text(i.valor,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 17, fontWeight: FontWeight.w800, color: _textoOscuro)),
           ],
         ),
       );
 
+  // Dato suelto: "titulo: valor"
+  Widget _dato(String titulo, String valor) => Text.rich(
+        TextSpan(children: [
+          TextSpan(
+              text: '$titulo: ',
+              style: TextStyle(fontSize: 12, color: _textoClaro)),
+          TextSpan(
+              text: valor,
+              style: TextStyle(
+                  fontSize: 12.5, fontWeight: FontWeight.w700, color: _textoOscuro)),
+        ]),
+      );
+
+  // Sub-tabla con el detalle de un registro
+  Widget _tablaDetalle(DetalleReporte det) {
+    final recortado = det.filas.length > _maxFilasDetalle;
+    final mostrar = recortado ? det.filas.take(_maxFilasDetalle).toList() : det.filas;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(det.titulo,
+              style: TextStyle(
+                  fontSize: 12.5, fontWeight: FontWeight.w700, color: _textoClaro)),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _colorBorde),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(_fondoInput),
+              headingRowHeight: 34,
+              dataRowMinHeight: 32,
+              dataRowMaxHeight: 40,
+              columnSpacing: 18,
+              horizontalMargin: 10,
+              columns: [
+                for (final c in det.columnas)
+                  DataColumn(
+                    numeric: c.numerica,
+                    label: Text(c.titulo,
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: _textoOscuro)),
+                  ),
+              ],
+              rows: [
+                for (var r = 0; r < mostrar.length; r++)
+                  DataRow(
+                    color: det.subtotales.contains(r)
+                        ? WidgetStateProperty.all(_colorIndicador)
+                        : null,
+                    cells: [
+                      for (final v in det.filaFormateada(mostrar[r]))
+                        DataCell(Text(v,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: _textoOscuro,
+                                fontWeight: det.subtotales.contains(r)
+                                    ? FontWeight.w800
+                                    : FontWeight.w400))),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (recortado)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Mostrando $_maxFilasDetalle de ${det.filas.length} filas. '
+              'Los archivos exportados incluyen todas.',
+              style: TextStyle(fontSize: 11.5, color: _textoClaro),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Tarjeta de un registro con su detalle
+  Widget _bloqueFila(TablaReporte t, int i, bool abierta) {
+    final fila = t.filas[i];
+    final det = t.detalleDe(i);
+
+    // El título es la primera columna de texto
+    var tc = t.columnas.indexWhere((c) => !c.numerica);
+    if (tc < 0) tc = 0;
+    final datos = <Widget>[];
+    for (var c = 0; c < fila.length; c++) {
+      if (c == tc || fila[c] == null) continue;
+      final v = t.formatear(c, fila[c]);
+      if (v.isEmpty) continue;
+      datos.add(_dato(t.columnas[c].titulo, v));
+    }
+    final cabecera = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(t.formatear(tc, fila[tc]),
+            style: TextStyle(
+                fontSize: 14, fontWeight: FontWeight.w800, color: _textoOscuro)),
+        const SizedBox(height: 6),
+        Wrap(spacing: 16, runSpacing: 4, children: datos),
+      ],
+    );
+
+    final decoracion = BoxDecoration(
+      color: Apariencia.instance.superficie,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: _colorBorde),
+    );
+    if (det == null) {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: decoracion,
+        child: cabecera,
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: decoracion,
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          // La llave cambia para aplicar expandir/contraer todo
+          key: ValueKey('fila-$i-$_versionExp'),
+          initiallyExpanded: abierta,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          iconColor: _colorAcento,
+          collapsedIconColor: _colorAcento,
+          title: cabecera,
+          children: [_tablaDetalle(det)],
+        ),
+      ),
+    );
+  }
+
+  // Fila de totales
+  Widget _bloqueTotales(TablaReporte t) {
+    final tot = t.totales!;
+    String etiqueta = 'TOTAL';
+    for (final v in tot) {
+      if (v is String) {
+        etiqueta = v;
+        break;
+      }
+    }
+    final datos = <Widget>[
+      for (var c = 0; c < tot.length; c++)
+        if (tot[c] is num) _dato(t.columnas[c].titulo, t.formatear(c, tot[c])),
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _colorIndicador,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(etiqueta,
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w800, color: _textoOscuro)),
+          const SizedBox(height: 6),
+          Wrap(spacing: 16, runSpacing: 4, children: datos),
+        ],
+      ),
+    );
+  }
+
+  // Reporte con detalle por registro
+  Widget _tablaConDetalle(TablaReporte t) {
+    final n = t.filas.length > _maxFilasPantalla ? _maxFilasPantalla : t.filas.length;
+    final abierta = _expandirTodo || (n <= 3 && _versionExp == 0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('Toca un registro para ver su detalle.',
+                  style: TextStyle(fontSize: 12, color: _textoClaro)),
+            ),
+            TextButton.icon(
+              onPressed: () => setState(() {
+                _expandirTodo = !_expandirTodo;
+                _versionExp++;
+              }),
+              icon: Icon(_expandirTodo ? Icons.unfold_less : Icons.unfold_more, size: 18),
+              label: Text(_expandirTodo ? 'Contraer todo' : 'Expandir todo'),
+              style: TextButton.styleFrom(foregroundColor: _colorAcento),
+            ),
+          ],
+        ),
+        for (var i = 0; i < n; i++) _bloqueFila(t, i, abierta),
+        if (t.totales != null) _bloqueTotales(t),
+      ],
+    );
+  }
+
   Widget _tablaDatos(TablaReporte t) {
+    if (t.tieneDetalle) return _tablaConDetalle(t);
     final mostrar = t.filas.length > _maxFilasPantalla
         ? t.filas.take(_maxFilasPantalla).toList()
         : t.filas;
-    const estiloCelda = TextStyle(fontSize: 12.5, color: _textoOscuro);
-    const estiloTotal =
+    final estiloCelda = TextStyle(fontSize: 12.5, color: _textoOscuro);
+    final estiloTotal =
         TextStyle(fontSize: 12.5, color: _textoOscuro, fontWeight: FontWeight.w800);
 
     DataRow fila(List<Object?> valores, TextStyle estilo, {Color? color}) => DataRow(
@@ -677,7 +884,7 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Apariencia.instance.superficie,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _colorBorde),
       ),
@@ -694,7 +901,7 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
               DataColumn(
                 numeric: c.numerica,
                 label: Text(c.titulo,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12, fontWeight: FontWeight.w700, color: _textoOscuro)),
               ),
           ],
@@ -735,14 +942,14 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
                 for (final a in t.advertencias)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(a, style: const TextStyle(fontSize: 12, color: _textoClaro)),
+                    child: Text(a, style: TextStyle(fontSize: 12, color: _textoClaro)),
                   ),
               ],
             ),
           ),
         ],
         const SizedBox(height: 22),
-        const Text('Resultados',
+        Text('Resultados',
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _textoOscuro)),
         const SizedBox(height: 10),
         _tablaDatos(t),
@@ -752,11 +959,11 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
             child: Text(
               'Mostrando $_maxFilasPantalla de ${t.filas.length} registros. '
               'Los archivos exportados incluyen todos.',
-              style: const TextStyle(fontSize: 12, color: _textoClaro),
+              style: TextStyle(fontSize: 12, color: _textoClaro),
             ),
           ),
         const SizedBox(height: 24),
-        const Text('Exportar',
+        Text('Exportar',
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _textoOscuro)),
         const SizedBox(height: 10),
         Row(
@@ -799,7 +1006,7 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
   Widget _cuerpo() {
     switch (_estado) {
       case _Estado.cargando:
-        return const Padding(
+        return Padding(
           padding: EdgeInsets.symmetric(vertical: 40),
           child: Center(
             child: Column(
@@ -840,8 +1047,8 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
             children: [
               TextButton.icon(
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
-                label: const Text('Reportes', style: TextStyle(color: _textoOscuro)),
+                icon: Icon(Icons.arrow_back, size: 18, color: _textoOscuro),
+                label: Text('Reportes', style: TextStyle(color: _textoOscuro)),
                 style: TextButton.styleFrom(
                   padding: EdgeInsets.zero,
                   alignment: Alignment.centerLeft,
@@ -849,11 +1056,11 @@ class _ResultadoReporteScreenState extends State<ResultadoReporteScreen> {
               ),
               const SizedBox(height: 8),
               Text(widget.tipo.titulo,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 22, fontWeight: FontWeight.w800, color: _textoOscuro)),
               const SizedBox(height: 6),
               for (final l in lineasFiltros)
-                Text(l, style: const TextStyle(fontSize: 13, color: _textoClaro)),
+                Text(l, style: TextStyle(fontSize: 13, color: _textoClaro)),
               const SizedBox(height: 20),
               _cuerpo(),
             ],
